@@ -263,6 +263,14 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
 
     // ============= Constructor =============
 
+    /**
+     * @notice Deploy the enhanced CCIP bridge
+     * @dev Sets up CCIP receiver, ownership, and token references
+     * @param _router CCIP router address for this chain
+     * @param _linkToken LINK token address for paying CCIP fees
+     * @param _rebaseToken Rebase token address to bridge
+     * @custom:gas ~350k gas for deployment
+     */
     constructor(address _router, address _linkToken, address _rebaseToken) 
         CCIPReceiver(_router) 
         Ownable(msg.sender) 
@@ -274,12 +282,17 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     // ============= Chain Management =============
 
     /**
-     * @dev Configure a new chain or update existing chain config
-     * @param _chainSelector CCIP chain selector
-     * @param _receiver Receiver contract on destination chain
-     * @param _minAmount Minimum bridge amount
-     * @param _maxAmount Maximum bridge amount
-     * @param _batchWindow Time window for batch collection
+     * @notice Configure a chain for bridging or update existing configuration
+     * @dev Enables dynamic chain support without redeployment
+     * @param _chainSelector CCIP chain selector (unique ID per chain)
+     * @param _receiver Bridge receiver contract address on destination
+     * @param _minAmount Minimum tokens per transfer (prevents dust attacks)
+     * @param _maxAmount Maximum tokens per transfer (security limit)
+     * @param _batchWindow Time window for batching transfers (in seconds)
+     * @custom:gas ~90k gas (multiple SSTOREs)
+     * @custom:emits ChainConfigured
+     * @custom:security Owner-only to prevent unauthorized chain additions
+     * @custom:example configureChain(polygonSelector, 0x..., 1 ether, 100 ether, 1 hours)
      */
     function configureChain(
         uint64 _chainSelector,
