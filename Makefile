@@ -4,6 +4,8 @@
 
 .PHONY: all test clean deploy help install format snapshot anvil
 
+DEFAULT_ANVIL_KEY := 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
 help:
 	@echo "Usage:"
 	@echo "  make install    - Install dependencies"
@@ -12,8 +14,8 @@ help:
 	@echo "  make format     - Format code"
 	@echo "  make snapshot   - Generate gas snapshots"
 	@echo "  make anvil      - Start local Anvil node"
+	@echo "  make deploy     - Deploy to Anvil (local)"
 	@echo "  make deploy-sepolia - Deploy to Sepolia"
-	@echo "  make deploy-arbitrum - Deploy to Arbitrum Sepolia"
 
 all: clean install build
 
@@ -36,31 +38,18 @@ snapshot:
 	forge snapshot
 
 anvil:
-	anvil
+	anvil -m 'test test test test test test test test test test test junk' --steps-tracing --block-time 1
+
+deploy:
+	@forge script script/DeployVault.s.sol:DeployVault --rpc-url http://localhost:8545 --private-key $(DEFAULT_ANVIL_KEY) --broadcast
 
 deploy-sepolia:
-	forge script script/DeployCrossChainRebaseToken.s.sol \
+	@forge script script/DeployVault.s.sol:DeployVault \
 		--rpc-url $(SEPOLIA_RPC_URL) \
 		--private-key $(PRIVATE_KEY) \
 		--broadcast \
 		--verify \
 		--etherscan-api-key $(ETHERSCAN_API_KEY) \
-		-vvvv
-
-deploy-arbitrum:
-	forge script script/DeployCrossChainRebaseToken.s.sol \
-		--rpc-url $(ARBITRUM_SEPOLIA_RPC_URL) \
-		--private-key $(PRIVATE_KEY) \
-		--broadcast \
-		--verify \
-		--etherscan-api-key $(ARBISCAN_API_KEY) \
-		-vvvv
-
-configure-ccip:
-	forge script script/ConfigureCCIP.s.sol \
-		--rpc-url $(SEPOLIA_RPC_URL) \
-		--private-key $(PRIVATE_KEY) \
-		--broadcast \
 		-vvvv
 
 clean:
