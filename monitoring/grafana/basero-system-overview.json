@@ -1,0 +1,457 @@
+{
+  "dashboard": {
+    "title": "Basero Protocol - System Overview",
+    "tags": ["basero", "defi", "protocol"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "basero_system_operational",
+            "legendFormat": "All Systems"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "orientation": "auto",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "0": {
+                    "text": "CRITICAL",
+                    "color": "red"
+                  },
+                  "1": {
+                    "text": "HEALTHY",
+                    "color": "green"
+                  }
+                }
+              }
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "red"
+                },
+                {
+                  "value": 1,
+                  "color": "green"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Components Operational",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "basero_components_operational",
+            "legendFormat": "Operational"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "orientation": "auto",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "max": 6,
+            "min": 0,
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "red"
+                },
+                {
+                  "value": 3,
+                  "color": "yellow"
+                },
+                {
+                  "value": 6,
+                  "color": "green"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Vault Utilization",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "basero_vault_utilization_bps / 100",
+            "legendFormat": "Utilization %"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        },
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "max": 100,
+            "min": 0,
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "green"
+                },
+                {
+                  "value": 80,
+                  "color": "yellow"
+                },
+                {
+                  "value": 95,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Active Alerts",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "basero_active_alerts",
+            "legendFormat": "Alerts"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "orientation": "auto",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "green"
+                },
+                {
+                  "value": 1,
+                  "color": "yellow"
+                },
+                {
+                  "value": 3,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Token Total Supply",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "basero_token_total_supply / 1e18",
+            "legendFormat": "Total Supply"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 4
+        },
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Tokens"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Vault Total Assets (ETH)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "basero_vault_total_assets / 1e18",
+            "legendFormat": "Total Assets"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 4
+        },
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "ETH"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Rebase Index",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "basero_token_rebase_index / 1e18",
+            "legendFormat": "Rebase Index"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 12
+        },
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Index"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Time Since Last Rebase",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "basero_token_time_since_rebase / 3600",
+            "legendFormat": "Hours"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 12
+        },
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Hours",
+            "max": 26,
+            "min": 0
+          }
+        ],
+        "alert": {
+          "name": "Rebase Overdue",
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [25],
+                "type": "gt"
+              },
+              "operator": {
+                "type": "and"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "last"
+              },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "noDataState": "no_data",
+          "notifications": []
+        }
+      },
+      {
+        "id": 9,
+        "title": "Governance Active Proposals",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "basero_governance_active_proposals",
+            "legendFormat": "Active"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 20
+        }
+      },
+      {
+        "id": 10,
+        "title": "Governance Total Proposals",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "basero_governance_total_proposals",
+            "legendFormat": "Total"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 20
+        }
+      },
+      {
+        "id": 11,
+        "title": "Voting Escrow Total Locked",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "basero_voting_escrow_total_locked / 1e18",
+            "legendFormat": "Locked Tokens"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 20
+        }
+      },
+      {
+        "id": 12,
+        "title": "Bridge Messages",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "basero_bridge_pending_messages",
+            "legendFormat": "Pending"
+          },
+          {
+            "expr": "basero_bridge_failed_messages",
+            "legendFormat": "Failed"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 20
+        }
+      },
+      {
+        "id": 13,
+        "title": "Vault Share Price",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "basero_vault_share_price / 1e18",
+            "legendFormat": "Share Price"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 24
+        },
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Price (ETH/Share)"
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "title": "Component Status",
+        "type": "status-history",
+        "targets": [
+          {
+            "expr": "basero_token_operational",
+            "legendFormat": "Token"
+          },
+          {
+            "expr": "basero_vault_operational",
+            "legendFormat": "Vault"
+          },
+          {
+            "expr": "basero_bridge_operational",
+            "legendFormat": "Bridge"
+          },
+          {
+            "expr": "basero_governance_operational",
+            "legendFormat": "Governance"
+          },
+          {
+            "expr": "basero_timelock_operational",
+            "legendFormat": "Timelock"
+          },
+          {
+            "expr": "basero_voting_escrow_operational",
+            "legendFormat": "VotingEscrow"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 24
+        }
+      }
+    ]
+  }
+}
