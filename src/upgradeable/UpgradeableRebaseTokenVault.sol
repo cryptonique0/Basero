@@ -339,12 +339,27 @@ contract UpgradeableRebaseTokenVault is
         emit ConfigUpdated("minimumRate", newMin);
     }
     
+    /**
+     * @notice Set the time period between interest accruals
+     * @dev Must be between 1 hour and 30 days for safety
+     * @param newPeriod Time in seconds (e.g., 1 days = 86400)
+     * @custom:gas ~30k gas (SSTORE + event)
+     * @custom:emits ConfigUpdated
+     * @custom:example 1 days = accrual happens daily, 1 hours = hourly
+     */
     function setAccrualPeriod(uint256 newPeriod) external onlyOwner {
         if (newPeriod < 1 hours || newPeriod > 30 days) revert InvalidConfig();
         accrualPeriod = newPeriod;
         emit ConfigUpdated("accrualPeriod", newPeriod);
     }
     
+    /**
+     * @notice Set the maximum interest that can accrue in one period
+     * @dev Prevents excessive supply inflation in single accrual
+     * @param newCap Maximum interest in tokens (e.g., 1000 ether)
+     * @custom:gas ~30k gas (SSTORE + event)
+     * @custom:emits ConfigUpdated
+     */
     function setDailyAccrualCap(uint256 newCap) external onlyOwner {
         if (newCap == 0) revert InvalidConfig();
         dailyAccrualCap = newCap;
@@ -353,16 +368,36 @@ contract UpgradeableRebaseTokenVault is
     
     // ============= Emergency =============
     
+    /**
+     * @notice Pause all vault operations (deposits, withdrawals, interest accrual)
+     * @dev Emergency function to halt operations during incidents
+     * @custom:gas ~30k gas
+     * @custom:security Owner-only, use during security incidents or upgrades
+     */
     function pause() external onlyOwner {
         _pause();
     }
     
+    /**
+     * @notice Unpause vault operations
+     * @dev Resumes normal operations after pause
+     * @custom:gas ~30k gas
+     * @custom:security Owner-only, ensure issue is resolved before unpausing
+     */
     function unpause() external onlyOwner {
         _unpause();
     }
     
     // ============= Storage Validation =============
     
+    /**
+     * @notice Get a hash of the current storage layout for upgrade validation
+     * @dev Used by StorageLayoutValidator to detect storage collisions before upgrades
+     * @dev Hash includes all storage variable names and gap size
+     * @return Hash of storage layout (keccak256 of variable names)
+     * @custom:gas Pure function - no gas cost externally
+     * @custom:upgrade Critical for safe upgrades - verify hash before upgrading
+     */
     function getStorageLayoutHash() external pure returns (bytes32) {
         return keccak256(abi.encodePacked(
             "v1",
