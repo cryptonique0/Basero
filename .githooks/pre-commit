@@ -1,0 +1,60 @@
+#!/bin/bash
+# Pre-commit hooks for Basero project
+# Install: cp ./scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+set -e
+
+echo "🔍 Running pre-commit checks..."
+
+# Check for private keys in staged files
+echo "  → Checking for private keys..."
+if git diff --cached | grep -E "(PRIVATE_KEY|0x[a-fA-F0-9]{64})" | grep -v "test" | grep -v "^-"; then
+    echo "❌ PRIVATE KEY DETECTED IN STAGED FILES!"
+    exit 1
+fi
+
+# Check for .env file (shouldn't be committed)
+echo "  → Checking for .env file..."
+if git diff --cached --name-only | grep "^\.env$"; then
+    echo "❌ .env file detected in staged changes. Use .env.example instead."
+    exit 1
+fi
+
+# Check Solidity files formatting
+echo "  → Checking Solidity formatting..."
+SOLIDITY_FILES=$(git diff --cached --name-only | grep "\.sol$" || true)
+if [ -n "$SOLIDITY_FILES" ]; then
+    if command -v forge &> /dev/null; then
+        forge fmt --check $SOLIDITY_FILES || {
+            echo "⚠️  Code formatting issues found. Run: make format"
+            exit 1
+        }
+    fi
+fi
+
+# Run solhint on staged Solidity files
+echo "  → Running linter on Solidity files..."
+if command -v solhint &> /dev/null; then
+    if [ -n "$SOLIDITY_FILES" ]; then
+        solhint $SOLIDITY_FILES || {
+            echo "⚠️  Linting errors found. Check with: make lint"
+            exit 1
+        }
+    fi
+fi
+
+# Check for console.log or debug statements
+echo "  → Checking for debug statements..."
+if git diff --cached | grep -E "(console\.log|console\.error|TODO|FIXME)" | grep "\.sol"; then
+    echo "⚠️  Debug statements found in Solidity files"
+    # Don't exit here - warning only
+fi
+
+# Check for common mistakes
+echo "  → Checking for common issues..."
+if git diff --cached | grep -E "(\.call\{.*\}\(\"\")" | grep -v "test"; then
+    echo "⚠️  Potential reentrancy issue detected"
+fi
+
+echo "✅ Pre-commit checks passed!"
+exit 0
