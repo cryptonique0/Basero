@@ -1,0 +1,52 @@
+# Prometheus Configuration for Basero Protocol
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    cluster: 'basero-production'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - 'alerts.yml'
+
+# Scrape configurations
+scrape_configs:
+  # Basero metrics exporter
+  - job_name: 'basero-protocol'
+    static_configs:
+      - targets: ['basero-exporter:9090']
+        labels:
+          service: 'basero'
+          component: 'protocol'
+    
+    metric_relabel_configs:
+      # Add environment label
+      - target_label: environment
+        replacement: 'production'
+    
+    relabel_configs:
+      # Keep only basero metrics
+      - source_labels: [__name__]
+        regex: 'basero_.*'
+        action: keep
+
+  # Node exporter (system metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'system'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
