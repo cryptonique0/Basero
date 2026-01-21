@@ -127,7 +127,13 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     /// @notice Last rate limit update timestamp per chain
     mapping(uint64 => uint256) public chainRateLimitLastUpdate;
 
-    // Events
+    // ============= Events =============
+    
+    /// @notice Emitted when a chain is configured or updated
+    /// @param chainSelector CCIP chain selector (unique per chain)
+    /// @param receiver Bridge receiver address on destination chain
+    /// @param minAmount Minimum transfer amount
+    /// @param maxAmount Maximum transfer amount
     event ChainConfigured(
         uint64 indexed chainSelector,
         address indexed receiver,
@@ -135,12 +141,21 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
         uint256 maxAmount
     );
 
+    /// @notice Emitted when rate limit is configured for a source chain
+    /// @param sourceChain Source chain selector
+    /// @param tokensPerSecond Refill rate (tokens per second)
+    /// @param maxBurstSize Maximum bucket capacity
     event RateLimitConfigured(
         uint64 indexed sourceChain,
         uint256 tokensPerSecond,
         uint256 maxBurstSize
     );
 
+    /// @notice Emitted when a batch transfer is created
+    /// @param batchId Unique batch identifier
+    /// @param destinationChain Destination chain selector
+    /// @param recipientCount Number of recipients in batch
+    /// @param totalAmount Total tokens in batch
     event BatchCreated(
         uint256 indexed batchId,
         uint64 indexed destinationChain,
@@ -148,18 +163,32 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
         uint256 totalAmount
     );
 
+    /// @notice Emitted when batch is executed via CCIP
+    /// @param batchId Batch identifier
+    /// @param messageId CCIP message ID
+    /// @param destinationChain Destination chain
     event BatchExecuted(
         uint256 indexed batchId,
         bytes32 indexed messageId,
         uint64 indexed destinationChain
     );
 
+    /// @notice Emitted when composable route is configured
+    /// @param routeId Unique route hash
+    /// @param targetChain Destination chain selector
+    /// @param targetContract Contract to call on destination
     event ComposableRouteSet(
         bytes32 indexed routeId,
         uint64 indexed targetChain,
         address indexed targetContract
     );
 
+    /// @notice Emitted when cross-chain transfer is initiated
+    /// @param messageId CCIP message ID
+    /// @param destinationChain Destination chain selector
+    /// @param recipient Token recipient
+    /// @param amount Tokens transferred
+    /// @param fees LINK fees paid for CCIP
     event CrossChainTransfer(
         bytes32 indexed messageId,
         uint64 indexed destinationChain,
@@ -168,12 +197,21 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
         uint256 fees
     );
 
+    /// @notice Emitted when rate limit is applied
+    /// @param sourceChain Source chain selector
+    /// @param tokensConsumed Tokens deducted from bucket
+    /// @param tokensRemaining Tokens left in bucket
     event RateLimitApplied(
         uint64 indexed sourceChain,
         uint256 tokensConsumed,
         uint256 tokensRemaining
     );
 
+    /// @notice Emitted when CCIP message is received
+    /// @param messageId CCIP message ID
+    /// @param sourceChainSelector Source chain
+    /// @param sender Original sender address
+    /// @param amount Tokens received
     event MessageReceived(
         bytes32 indexed messageId,
         uint64 indexed sourceChainSelector,
@@ -181,17 +219,46 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
         uint256 amount
     );
 
-    // Errors
+    // ============= Errors =============
+    
+    /// @notice Thrown when attempting to use unconfigured chain
+    /// @param chainSelector Chain that wasn't configured
     error ChainNotConfigured(uint64 chainSelector);
+    
+    /// @notice Thrown when receiver address is zero or invalid
     error InvalidReceiverAddress();
+    
+    /// @notice Thrown when bridge amount is outside configured bounds
+    /// @param amount Attempted amount
+    /// @param min Minimum allowed
+    /// @param max Maximum allowed
     error BridgeAmountOutOfBounds(uint256 amount, uint256 min, uint256 max);
+    
+    /// @notice Thrown when transfer exceeds rate limit
+    /// @param requested Tokens requested
+    /// @param available Tokens available in bucket
     error RateLimitExceeded(uint256 requested, uint256 available);
+    
+    /// @notice Thrown when batch ID doesn't exist
     error InvalidBatchId();
+    
+    /// @notice Thrown when attempting to re-execute batch
     error BatchAlreadyExecuted();
+    
+    /// @notice Thrown when batch has no recipients
     error EmptyBatchTransfer();
+    
+    /// @notice Thrown when batch amounts don't match recipients
     error BatchAmountMismatch();
+    
+    /// @notice Thrown when composable route not configured
     error ComposableRouteNotSet();
+    
+    /// @notice Thrown when source chain is invalid
+    /// @param chainSelector Invalid chain selector
     error InvalidSourceChain(uint64 chainSelector);
+    
+    /// @notice Thrown when contract has insufficient LINK for fees
     error InsufficientLinkBalance();
 
     // ============= Constructor =============
