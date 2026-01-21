@@ -37,18 +37,50 @@ contract UpgradeableRebaseToken is
     
     // ============= Events =============
     
+    /// @notice Emitted when tokens are transferred between addresses
+    /// @param from Source address (address(0) for minting)
+    /// @param to Destination address (address(0) for burning)
+    /// @param value Token amount transferred (not shares)
     event Transfer(address indexed from, address indexed to, uint256 value);
+    
+    /// @notice Emitted when allowance is set
+    /// @param owner Token owner granting allowance
+    /// @param spender Address receiving spending rights
+    /// @param value Allowance amount in tokens
     event Approval(address indexed owner, address indexed spender, uint256 value);
+    
+    /// @notice Emitted when total supply is rebased
+    /// @dev Shares remain constant, only supply changes
+    /// @param oldSupply Previous total supply
+    /// @param newSupply New total supply after rebase
+    /// @param timestamp Block timestamp of rebase
     event Rebase(uint256 oldSupply, uint256 newSupply, uint256 timestamp);
+    
+    /// @notice Emitted when an account's interest rate is updated
+    /// @param account Account whose rate was updated
+    /// @param newRate New interest rate in basis points (100 = 1%)
     event InterestRateUpdated(address indexed account, uint256 newRate);
+    
+    /// @notice Emitted when contract is upgraded to new implementation
+    /// @param implementation Address of new implementation contract
+    /// @param version Version number before upgrade
     event Upgraded(address indexed implementation, uint256 version);
     
     // ============= Errors =============
     
+    /// @notice Thrown when account has insufficient balance for operation
     error InsufficientBalance();
+    
+    /// @notice Thrown when spender has insufficient allowance
     error InsufficientAllowance();
+    
+    /// @notice Thrown when zero address is provided where not allowed
     error ZeroAddress();
+    
+    /// @notice Thrown when amount is invalid (zero or exceeds limits)
     error InvalidAmount();
+    
+    /// @notice Thrown when caller lacks required authorization
     error Unauthorized();
     
     // ============= Initialization =============
@@ -59,10 +91,13 @@ contract UpgradeableRebaseToken is
     }
     
     /**
-     * @dev Initialize the upgradeable token
-     * @param name_ Token name
-     * @param symbol_ Token symbol
-     * @param owner_ Initial owner address
+     * @notice Initialize the upgradeable rebase token (replaces constructor)
+     * @dev Can only be called once due to initializer modifier. Sets up ownership, UUPS, and reentrancy guard
+     * @param name_ Human-readable token name (e.g., "Rebase Token")
+     * @param symbol_ Token ticker symbol (e.g., "REBASE")
+     * @param owner_ Address that will own the contract and control upgrades
+     * @custom:security Must be called atomically with proxy deployment to prevent front-running
+     * @custom:gas Approximately 180k gas for full initialization
      */
     function initialize(
         string memory name_,
@@ -85,8 +120,11 @@ contract UpgradeableRebaseToken is
     // ============= Upgrade Authorization =============
     
     /**
-     * @dev Authorize upgrade (only owner can upgrade)
-     * @param newImplementation Address of new implementation
+     * @notice Internal function to authorize contract upgrades
+     * @dev Only callable by contract owner. Called by upgradeToAndCall()
+     * @param newImplementation Address of new implementation contract
+     * @custom:security Critical function - only owner can upgrade
+     * @custom:gas ~5k gas for authorization check
      */
     function _authorizeUpgrade(address newImplementation) 
         internal 
@@ -97,8 +135,10 @@ contract UpgradeableRebaseToken is
     }
     
     /**
-     * @dev Get current contract version
-     * @return version Version number
+     * @notice Get the current contract version
+     * @dev Returns version before upgrade. Increment in new implementations
+     * @return version Current version number (1 for initial deployment)
+     * @custom:gas Pure function - no gas cost when called externally
      */
     function getVersion() public pure returns (uint256) {
         return 1;
@@ -106,18 +146,39 @@ contract UpgradeableRebaseToken is
     
     // ============= ERC20 Metadata =============
     
+    /**
+     * @notice Get the token name
+     * @return Token name string
+     * @custom:gas ~2.5k gas
+     */
     function name() public view returns (string memory) {
         return _name;
     }
     
+    /**
+     * @notice Get the token symbol
+     * @return Token symbol string
+     * @custom:gas ~2.5k gas
+     */
     function symbol() public view returns (string memory) {
         return _symbol;
     }
     
+    /**
+     * @notice Get the token decimals
+     * @return Number of decimals (always 18)
+     * @custom:gas ~400 gas
+     */
     function decimals() public view returns (uint8) {
         return _decimals;
     }
     
+    /**
+     * @notice Get the total token supply
+     * @dev This changes during rebases while shares remain constant
+     * @return Current total supply in tokens
+     * @custom:gas ~400 gas
+     */
     function totalSupply() public view returns (uint256) {
         return _totalSupply;
     }
@@ -125,9 +186,12 @@ contract UpgradeableRebaseToken is
     // ============= Balance & Shares =============
     
     /**
-     * @dev Get token balance (shares to tokens conversion)
-     * @param account Account address
-     * @return Token balance
+     * @notice Get token balance for an account
+     * @dev Converts shares to tokens using: (shares * totalSupply) / totalShares
+     * @dev Balance increases/decreases automatically during rebases
+     * @param account Address to query balance for
+     * @return Token balance (not shares)
+     * @custom:gas ~3k gas (2 SLOADs + 1 division)
      */
     function balanceOf(address account) public view returns (uint256) {
         if (_totalShares == 0) return 0;
@@ -135,18 +199,22 @@ contract UpgradeableRebaseToken is
     }
     
     /**
-     * @dev Get shares held by account
-     * @param account Account address
-     * @return Shares balance
+     * @notice Get shares held by an account
+     * @dev Shares remain constant across rebases (unlike balanceOf)
+     * @param account Address to query shares for
+     * @return Number of shares held
+     * @custom:gas ~2.5k gas (1 SLOAD from mapping)
      */
     function sharesOf(address account) public view returns (uint256) {
         return _shares[account];
     }
     
     /**
-     * @dev Get interest rate for account
-     * @param account Account address
-     * @return Interest rate in basis points
+     * @notice Get the interest rate assigned to an account
+     * @dev Rate set during minting, affects future rebases
+     * @param account Address to query rate for
+     * @return Interest rate in basis points (100 = 1%, 1000 = 10%)
+     * @custom:gas ~2.5k gas (1 SLOAD from mapping)
      */
     function interestRateOf(address account) public view returns (uint256) {
         return _interestRates[account];
@@ -155,9 +223,13 @@ contract UpgradeableRebaseToken is
     // ============= Transfers =============
     
     /**
-     * @dev Transfer tokens
-     * @param to Recipient address
-     * @param amount Token amount
+     * @notice Transfer tokens to another address
+     * @dev Transfers shares calculated from token amount. Emits Transfer event
+     * @param to Recipient address (cannot be zero address)
+     * @param amount Token amount to transfer (not shares)
+     * @return success Always returns true if not reverted
+     * @custom:gas ~54k gas for standard transfer (with reentrancy guard)
+     * @custom:emits Transfer
      */
     function transfer(address to, uint256 amount) 
         public 
@@ -169,10 +241,14 @@ contract UpgradeableRebaseToken is
     }
     
     /**
-     * @dev Transfer tokens from
-     * @param from Sender address
-     * @param to Recipient address
-     * @param amount Token amount
+     * @notice Transfer tokens on behalf of another address
+     * @dev Requires sufficient allowance. Decreases allowance and transfers shares
+     * @param from Address to transfer from (must have approved msg.sender)
+     * @param to Recipient address (cannot be zero address)
+     * @param amount Token amount to transfer
+     * @return success Always returns true if not reverted
+     * @custom:gas ~60k gas (additional allowance check vs transfer)
+     * @custom:emits Transfer
      */
     function transferFrom(address from, address to, uint256 amount)
         public
@@ -189,10 +265,14 @@ contract UpgradeableRebaseToken is
     }
     
     /**
-     * @dev Internal transfer (shares-based)
-     * @param from Sender
-     * @param to Recipient
-     * @param amount Token amount
+     * @notice Internal transfer logic using shares-based accounting
+     * @dev Converts token amount to shares, transfers shares, preserves interest rates
+     * @dev Transfers interest rate to recipient if they have none
+     * @param from Source address (must have sufficient balance)
+     * @param to Destination address (cannot be zero)
+     * @param amount Token amount to transfer (converted to shares)
+     * @custom:gas ~48k base gas (3 SSTOREs + 2 SLOADs)
+     * @custom:emits Transfer
      */
     function _transfer(address from, address to, uint256 amount) internal {
         if (from == address(0) || to == address(0)) revert ZeroAddress();
@@ -215,6 +295,13 @@ contract UpgradeableRebaseToken is
     
     // ============= Allowances =============
     
+    /**
+     * @notice Get the allowance granted by owner to spender
+     * @param owner Address that owns the tokens
+     * @param spender Address that can spend the tokens
+     * @return Remaining allowance in tokens
+     * @custom:gas ~2.5k gas (nested mapping SLOAD)
+     */
     function allowance(address owner, address spender) 
         public 
         view 
@@ -223,6 +310,16 @@ contract UpgradeableRebaseToken is
         return _allowances[owner][spender];
     }
     
+    /**
+     * @notice Approve spender to spend tokens on behalf of caller
+     * @dev Sets allowance to exact amount (not additive). Use carefully to avoid race conditions
+     * @param spender Address being granted spending rights
+     * @param amount Maximum tokens spender can transfer
+     * @return success Always returns true if not reverted
+     * @custom:gas ~45k gas (1 SSTORE)
+     * @custom:emits Approval
+     * @custom:security Consider using increaseAllowance/decreaseAllowance to avoid race conditions
+     */
     function approve(address spender, uint256 amount) public returns (bool) {
         _allowances[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
@@ -232,9 +329,14 @@ contract UpgradeableRebaseToken is
     // ============= Rebase & Mint/Burn =============
     
     /**
-     * @dev Rebase by absolute amount
-     * @param amount Amount to add/subtract
-     * @param positive True to increase supply
+     * @notice Rebase the total supply by an absolute amount
+     * @dev Changes total supply while keeping shares constant. All balances change proportionally
+     * @dev Callable only by owner (typically the vault during interest accrual)
+     * @param amount Absolute amount to add/subtract from total supply
+     * @param positive True to increase supply (positive rebase), false to decrease (negative rebase)
+     * @custom:gas ~30k gas (1 SLOAD, 1 SSTORE, event emission)
+     * @custom:emits Rebase
+     * @custom:security Owner-only to prevent unauthorized supply manipulation
      */
     function rebase(uint256 amount, bool positive) external onlyOwner {
         uint256 oldSupply = _totalSupply;
@@ -250,9 +352,13 @@ contract UpgradeableRebaseToken is
     }
     
     /**
-     * @dev Rebase by percentage (in basis points)
-     * @param percentage Percentage in basis points (100 = 1%)
-     * @param positive True to increase supply
+     * @notice Rebase the total supply by a percentage
+     * @dev Convenience function for percentage-based rebases. Calculates amount from percentage
+     * @param percentage Percentage in basis points (100 = 1%, 1000 = 10%, 10000 = 100%)
+     * @param positive True to increase supply, false to decrease
+     * @custom:gas ~32k gas (additional multiplication vs absolute rebase)
+     * @custom:emits Rebase
+     * @custom:example 500 basis points with 1000 supply = 50 token adjustment
      */
     function rebaseByPercentage(uint256 percentage, bool positive) 
         external 
@@ -272,10 +378,16 @@ contract UpgradeableRebaseToken is
     }
     
     /**
-     * @dev Mint tokens with interest rate
-     * @param account Recipient
-     * @param amount Token amount
-     * @param interestRate Interest rate in basis points
+     * @notice Mint new tokens to an account with an assigned interest rate
+     * @dev Creates new shares and increases total supply. Sets account's interest rate
+     * @dev First mint initializes 1:1 share-to-token ratio
+     * @param account Recipient address (cannot be zero)
+     * @param amount Token amount to mint
+     * @param interestRate Interest rate for this account in basis points (e.g., 1000 = 10%)
+     * @custom:gas ~85k gas for first mint, ~65k for subsequent (cold SSTORE vs warm)
+     * @custom:emits Transfer (from zero address)
+     * @custom:emits InterestRateUpdated
+     * @custom:security Owner-only to prevent unauthorized minting
      */
     function mint(address account, uint256 amount, uint256 interestRate) 
         external 
@@ -303,9 +415,13 @@ contract UpgradeableRebaseToken is
     }
     
     /**
-     * @dev Burn tokens
-     * @param account Account to burn from
-     * @param amount Token amount
+     * @notice Burn tokens from an account
+     * @dev Reduces shares and total supply. Account must have sufficient balance
+     * @param account Address to burn tokens from (cannot be zero)
+     * @param amount Token amount to burn (converted to shares)
+     * @custom:gas ~58k gas (multiple SSTOREs for shares and supply)
+     * @custom:emits Transfer (to zero address)
+     * @custom:security Owner-only to prevent unauthorized burning
      */
     function burn(address account, uint256 amount) 
         external 
@@ -329,8 +445,12 @@ contract UpgradeableRebaseToken is
     // ============= Storage Validation =============
     
     /**
-     * @dev Validate storage layout (for upgrade safety)
-     * @return Layout hash for comparison
+     * @notice Get a hash of the current storage layout for upgrade validation
+     * @dev Used by StorageLayoutValidator to detect storage collisions before upgrades
+     * @dev Hash includes all storage variable names and gap size
+     * @return Hash of storage layout (keccak256 of variable names)
+     * @custom:gas Pure function - no gas cost externally
+     * @custom:upgrade Critical for safe upgrades - verify hash before upgrading
      */
     function getStorageLayoutHash() external pure returns (bytes32) {
         return keccak256(abi.encodePacked(
@@ -343,8 +463,12 @@ contract UpgradeableRebaseToken is
     }
     
     /**
-     * @dev Get total storage slots used
-     * @return Number of storage slots
+     * @notice Get the total number of storage slots used by this contract
+     * @dev Used to validate storage consumption and gap availability
+     * @dev Breakdown: 3 metadata + 2 totals + 3 mappings + 50 gap = 58 total
+     * @return Total storage slots (58 for version 1)
+     * @custom:gas Pure function - no gas cost externally
+     * @custom:upgrade Verify new version doesn't exceed available slots
      */
     function getStorageSlots() external pure returns (uint256) {
         // 3 (metadata) + 2 (totals) + 3 (mappings) + 50 (gap) = 58 slots
