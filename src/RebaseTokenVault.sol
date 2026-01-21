@@ -11,6 +11,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @title RebaseTokenVault
  * @dev Vault contract where users deposit ETH to receive RebaseTokens
  * @notice Interest rates decrease discretely over time and early depositors get higher rates
+ * @notice Supports governance-controlled parameter updates via timelock
  */
 contract RebaseTokenVault is Ownable, Pausable, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
@@ -18,6 +19,9 @@ contract RebaseTokenVault is Ownable, Pausable, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     RebaseToken public immutable i_rebaseToken;
+
+    // Governance roles
+    address public governanceTimelock;
 
     // Current interest rate (in basis points, 10000 = 100%)
     // Starts at 10% (1000 basis points) and decreases
@@ -93,6 +97,8 @@ contract RebaseTokenVault is Ownable, Pausable, ReentrancyGuard {
     event AccrualConfigUpdated(uint256 accrualPeriod, uint256 maxDailyAccrualBps);
     event SweepExecuted(address indexed token, address indexed to, uint256 amount);
     event EmergencyEthWithdrawn(address indexed to, uint256 amount);
+    event GovernanceTimelockUpdated(address indexed oldTimelock, address indexed newTimelock);
+    event GovernanceParameterUpdated(string indexed parameterName, uint256 newValue, address indexed updatedBy);
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -104,6 +110,8 @@ contract RebaseTokenVault is Ownable, Pausable, ReentrancyGuard {
     error NoTokensToRedeem();
     error DepositsArePaused();
     error RedeemsArePaused();
+    error OnlyGovernance();
+    error InvalidGovernanceAddress();
     error NotAllowlisted();
     error MinDepositNotMet(uint256 provided, uint256 minimum);
     error DepositCapExceeded(uint256 requested, uint256 maxPerAddress);
@@ -134,6 +142,41 @@ contract RebaseTokenVault is Ownable, Pausable, ReentrancyGuard {
         s_maxTotalDeposits = type(uint256).max;
         s_feeRecipient = msg.sender;
         s_protocolFeeBps = 0;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier onlyGovernance() {
+        if (msg.sender != governanceTimelock && msg.sender != owner()) revert OnlyGovernance();
+        _;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      GOVERNANCE MANAGEMENT
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Set governance timelock address (owner only)
+     * @dev Once set, governance can update parameters via proposals
+     * @param newTimelock Address of timelock controller
+     */
+    function setGovernanceTimelock(address newTimelock) external onlyOwner {
+        if (newTimelock == address(0)) revert InvalidGovernanceAddress();
+
+        address oldTimelock = governanceTimelock;
+        governanceTimelock = newTimelock;
+
+        emit GovernanceTimelockUpdated(oldTimelock, newTimelock);
+    }
+
+    /**
+     * @notice Get governance timelock address
+     * @return Address of current governance timelock
+     */
+    function getGovernanceTimelock() external view returns (address) {
+        return governanceTimelock;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -182,33 +225,37 @@ contract RebaseTokenVault is Ownable, Pausable, ReentrancyGuard {
         emit AllowlistUpdated(account, allowed);
     }
 
-    function setDepositCaps(uint256 maxPerAddress, uint256 maxTotal) external onlyOwner {
+    function setDepositCaps(uint256 maxPerAddress, uint256 maxTotal) external onlyGovernance {
         if (maxPerAddress == 0 || maxTotal == 0) revert AmountZero();
         s_maxDepositPerAddress = maxPerAddress;
         s_maxTotalDeposits = maxTotal;
         emit DepositCapsUpdated(maxPerAddress, maxTotal);
+        emit GovernanceParameterUpdated("DepositCaps", maxPerAddress, msg.sender);
     }
 
-    function setMinDeposit(uint256 minDeposit) external onlyOwner {
+    function setMinDeposit(uint256 minDeposit) external onlyGovernance {
         s_minDeposit = minDeposit;
         emit MinDepositUpdated(minDeposit);
+        emit GovernanceParameterUpdated("MinDeposit", minDeposit, msg.sender);
     }
 
-    function setFeeConfig(address recipient, uint256 protocolFeeBps) external onlyOwner {
+    function setFeeConfig(address recipient, uint256 protocolFeeBps) external onlyGovernance {
         if (recipient == address(0)) revert ZeroAddressNotAllowed();
         if (protocolFeeBps > 10_000) revert InvalidProtocolFee();
         s_feeRecipient = recipient;
         s_protocolFeeBps = protocolFeeBps;
         emit FeeConfigUpdated(recipient, protocolFeeBps);
+        emit GovernanceParameterUpdated("ProtocolFeeBps", protocolFeeBps, msg.sender);
     }
 
-    function setAccrualConfig(uint256 accrualPeriod, uint256 maxDailyAccrualBps) external onlyOwner {
+    function setAccrualConfig(uint256 accrualPeriod, uint256 maxDailyAccrualBps) external onlyGovernance {
         if (accrualPeriod < MIN_ACCRUAL_PERIOD || accrualPeriod > MAX_ACCRUAL_PERIOD) {
             revert InvalidAccrualPeriod();
         }
         s_accrualPeriod = accrualPeriod;
         s_maxDailyAccrualBps = maxDailyAccrualBps;
         emit AccrualConfigUpdated(accrualPeriod, maxDailyAccrualBps);
+        emit GovernanceParameterUpdated("AccrualPeriod", accrualPeriod, msg.sender);
     }
 
     function emergencyWithdrawETH(address to, uint256 amount) external onlyOwner nonReentrant {
