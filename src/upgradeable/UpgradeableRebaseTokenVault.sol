@@ -409,6 +409,14 @@ contract UpgradeableRebaseTokenVault is
         ));
     }
     
+    /**
+     * @notice Get the total number of storage slots used by this contract
+     * @dev Used to validate storage consumption and gap availability
+     * @dev Breakdown: 1 token + 4 config + 4 rates + 3 mappings + 40 gap = 52 total
+     * @return Total storage slots (52 for version 1)
+     * @custom:gas Pure function - no gas cost externally
+     * @custom:upgrade Verify new version doesn't exceed available slots
+     */
     function getStorageSlots() external pure returns (uint256) {
         // 1 (token) + 4 (config) + 4 (rates) + 3 (mappings) + 40 (gap) = 52 slots
         return 52;
@@ -416,6 +424,15 @@ contract UpgradeableRebaseTokenVault is
     
     // ============= View Functions =============
     
+    /**
+     * @notice Get comprehensive information for a user
+     * @param user Address to query information for
+     * @return deposited Total ETH deposited by user (in wei)
+     * @return interestRate User's assigned interest rate (basis points)
+     * @return tokenBalance Current rebase token balance (increases with rebases)
+     * @return lastDeposit Timestamp of user's last deposit
+     * @custom:gas ~8k gas (multiple SLOADs + external call to token)
+     */
     function getUserInfo(address user) 
         external 
         view 
@@ -434,6 +451,11 @@ contract UpgradeableRebaseTokenVault is
         );
     }
     
+    /**
+     * @notice Receive ETH directly (forwards to deposit)
+     * @dev Allows sending ETH to contract address directly
+     * @custom:gas Uses deposit() function gas cost
+     */
     receive() external payable {
         // Allow receiving ETH
     }
