@@ -43,19 +43,52 @@ contract UpgradeableRebaseTokenVault is
     
     // ============= Events =============
     
+    /// @notice Emitted when user deposits ETH and receives rebase tokens
+    /// @param user Address of depositor
+    /// @param amount ETH amount deposited (in wei)
+    /// @param tokens Rebase tokens minted (equal to amount)
+    /// @param interestRate Interest rate assigned at deposit time (basis points)
     event Deposited(address indexed user, uint256 amount, uint256 tokens, uint256 interestRate);
+    
+    /// @notice Emitted when user withdraws ETH by burning rebase tokens
+    /// @param user Address of withdrawer
+    /// @param amount ETH amount withdrawn (in wei)
+    /// @param tokens Rebase tokens burned (equal to amount)
     event Withdrawn(address indexed user, uint256 amount, uint256 tokens);
+    
+    /// @notice Emitted when interest is accrued (supply rebased)
+    /// @param amount Interest amount added to total supply
+    /// @param timestamp Block timestamp of accrual
     event InterestAccrued(uint256 amount, uint256 timestamp);
+    
+    /// @notice Emitted when configuration parameter is updated
+    /// @param parameter Name of parameter (e.g., "baseInterestRate")
+    /// @param newValue New value in appropriate units
     event ConfigUpdated(string parameter, uint256 newValue);
+    
+    /// @notice Emitted when vault is upgraded to new implementation
+    /// @param implementation Address of new implementation contract
+    /// @param version Version number before upgrade
     event Upgraded(address indexed implementation, uint256 version);
     
     // ============= Errors =============
     
+    /// @notice Thrown when deposit/withdraw amount is zero
     error ZeroAmount();
+    
+    /// @notice Thrown when user tries to withdraw more than deposited
     error InsufficientBalance();
+    
+    /// @notice Thrown when ETH transfer fails
     error TransferFailed();
+    
+    /// @notice Thrown when accrueInterest called before accrualPeriod elapsed
     error TooSoon();
+    
+    /// @notice Thrown when interest accrual exceeds dailyAccrualCap
     error ExceedsCap();
+    
+    /// @notice Thrown when configuration value is invalid
     error InvalidConfig();
     
     // ============= Initialization =============
@@ -66,9 +99,14 @@ contract UpgradeableRebaseTokenVault is
     }
     
     /**
-     * @dev Initialize the upgradeable vault
-     * @param rebaseToken_ Address of rebase token
-     * @param owner_ Initial owner
+     * @notice Initialize the upgradeable vault (replaces constructor)
+     * @dev Sets up ownership, UUPS, pausability, and reentrancy protection
+     * @dev Configures default interest rate system: 10% base, decreasing to 2% minimum
+     * @param rebaseToken_ Address of UpgradeableRebaseToken (cannot be zero)
+     * @param owner_ Address that will own vault and control upgrades
+     * @custom:security Must be called atomically with proxy deployment
+     * @custom:gas ~220k gas for full initialization
+     * @custom:config Base rate: 10%, Decrement: 1% per 10 ETH, Min: 2%, Accrual: daily
      */
     function initialize(
         address rebaseToken_,
@@ -96,6 +134,13 @@ contract UpgradeableRebaseTokenVault is
     
     // ============= Upgrade Authorization =============
     
+    /**
+     * @notice Internal function to authorize contract upgrades
+     * @dev Only callable by contract owner. Called by upgradeToAndCall()
+     * @param newImplementation Address of new implementation contract
+     * @custom:security Critical function - only owner can upgrade
+     * @custom:gas ~5k gas for authorization check
+     */
     function _authorizeUpgrade(address newImplementation) 
         internal 
         override 
@@ -104,6 +149,12 @@ contract UpgradeableRebaseTokenVault is
         emit Upgraded(newImplementation, getVersion());
     }
     
+    /**
+     * @notice Get the current contract version
+     * @dev Returns version before upgrade. Increment in new implementations
+     * @return version Current version number (1 for initial deployment)
+     * @custom:gas Pure function - no gas cost when called externally
+     */
     function getVersion() public pure returns (uint256) {
         return 1;
     }
@@ -111,7 +162,13 @@ contract UpgradeableRebaseTokenVault is
     // ============= Deposit & Withdraw =============
     
     /**
-     * @dev Deposit ETH and mint rebase tokens
+     * @notice Deposit ETH and receive rebase tokens (1:1 ratio)
+     * @dev Mints tokens with current interest rate. Rate decreases as totalDeposited increases
+     * @dev Pausable and protected against reentrancy
+     * @custom:gas ~87k gas (includes token minting and storage updates)
+     * @custom:emits Deposited
+     * @custom:state Updates userDeposits, userInterestRates, lastDepositTime, totalDeposited
+     * @custom:example Deposit 10 ETH → Receive 10 REBASE tokens at current rate (e.g., 8%)
      */
     function deposit() external payable whenNotPaused nonReentrant {
         if (msg.value == 0) revert ZeroAmount();
@@ -130,8 +187,14 @@ contract UpgradeableRebaseTokenVault is
     }
     
     /**
-     * @dev Withdraw ETH by burning tokens
-     * @param amount Amount to withdraw
+     * @notice Withdraw ETH by burning rebase tokens (1:1 ratio)
+     * @dev Burns tokens and transfers ETH back to user. Must have sufficient deposit
+     * @dev Pausable and protected against reentrancy
+     * @param amount ETH amount to withdraw (must be ≤ user's deposit)
+     * @custom:gas ~80k gas (includes token burning and ETH transfer)
+     * @custom:emits Withdrawn
+     * @custom:state Updates userDeposits, totalDeposited
+     * @custom:security Uses call{value} for ETH transfer, reverts if fails
      */
     function withdraw(uint256 amount) external whenNotPaused nonReentrant {
         if (amount == 0) revert ZeroAmount();
@@ -153,8 +216,12 @@ contract UpgradeableRebaseTokenVault is
     // ============= Interest Rate System =============
     
     /**
-     * @dev Calculate current interest rate based on total deposited
-     * @return Current interest rate in basis points
+     * @notice Calculate current interest rate based on total deposited
+     * @dev Rate decreases linearly: baseRate - (totalDeposited / threshold) * decrement
+     * @dev Floors at minimumRate to ensure positive interest
+     * @return Current interest rate in basis points (e.g., 1000 = 10%, 200 = 2%)
+     * @custom:gas ~3k gas (2 divisions, 2 multiplications, comparison)
+     * @custom:example totalDeposited=50 ETH: 1000 - (50/10)*100 = 500 (5%)
      */
     function getCurrentInterestRate() public view returns (uint256) {
         uint256 decrements = totalDeposited / decrementThreshold;
