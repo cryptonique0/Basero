@@ -149,77 +149,87 @@ crossChainRebaseToken/
 └── README.md                            # This file
 ```
 
-## 🔐 Smart Contracts
+## 🌐 Deployment
 
-### RebaseToken.sol
-The core ERC-20 token with rebase functionality:
-- **Shares-based system**: Balances calculated from shares × (totalSupply / totalShares)
-- **Rebase functions**: Adjust supply by absolute value or percentage
-- **Mint/Burn**: Create or destroy tokens with automatic share management
-- **Standard ERC-20**: Full compatibility with ERC-20 interfaces
+### Deployment to Local Network
 
-### CCIPRebaseTokenSender.sol
-Manages outbound cross-chain transfers:
-- **Token burning**: Burns tokens on source chain before transfer
-- **CCIP messaging**: Sends cross-chain messages via Chainlink CCIP
-- **Access control**: Allowlisted destination chains and receivers
-- **Fee management**: Handles LINK token fees for cross-chain messages
+Deploy to Anvil (local node):
 
-### CCIPRebaseTokenReceiver.sol
-Handles inbound cross-chain transfers:
-- **Token minting**: Mints tokens on destination chain upon receipt
-- **Message validation**: Validates source chains and senders
-- **Event emission**: Tracks all received cross-chain transfers
-
-## ⚙️ Setup
-
-1. **Configure Foundry** (already done in `foundry.toml`)
-
-2. **Set up environment variables** in `.env`:
-```env
-PRIVATE_KEY=your_private_key_here
-SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/your-api-key
-ARBITRUM_SEPOLIA_RPC_URL=https://arb-sepolia.g.alchemy.com/v2/your-api-key
+```bash
+make anvil  # In one terminal
+make deploy # In another terminal
 ```
 
-3. **Fund your wallet**:
-   - Get testnet ETH from faucets
-   - Get testnet LINK from [Chainlink Faucet](https://faucets.chain.link/)
+### Deployment to Testnet
 
-## 🚀 Usage
+1. **Get testnet ETH**:
+   - Visit [faucets.chain.link](https://faucets.chain.link) for Sepolia ETH
 
-### Build
-Compile all contracts:
+2. **Deploy to Sepolia**:
 ```bash
-forge build
+make deploy ARGS="--network sepolia"
 ```
 
-### Test
-Run the complete test suite:
+Or with environment variables:
+
 ```bash
-forge test
+forge script script/DeployVault.s.sol:DeployVault \
+    --rpc-url $SEPOLIA_RPC_URL \
+    --private-key $PRIVATE_KEY \
+    --broadcast \
+    --verify \
+    --etherscan-api-key $ETHERSCAN_API_KEY \
+    -vvvv
 ```
 
-Run with verbose output:
+### Deployment to Mainnet
+
+⚠️ **WARNING**: Mainnet deployment involves real funds. Ensure thorough testing on testnets first.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for complete mainnet deployment instructions.
+
+## 🔧 Scripts
+
+Instead of writing custom scripts, you can use `cast` commands to interact with the contract directly.
+
+### Get RebaseTokens
+
+Deposit ETH to receive rebase tokens:
+
 ```bash
-forge test -vvv
+cast send <vault-contract-address> "deposit()" \
+    --value 0.1ether \
+    --rpc-url $SEPOLIA_RPC_URL \
+    --private-key $PRIVATE_KEY
 ```
 
-Run specific test:
+### Redeem RebaseTokens for ETH
+
 ```bash
-forge test --match-test testRebase -vvv
+cast send <vault-contract-address> "redeem(uint256)" 10000000000000000 \
+    --rpc-url $SEPOLIA_RPC_URL \
+    --private-key $PRIVATE_KEY
 ```
 
-### Format
-Format Solidity code:
+### Check Your Balance
+
 ```bash
-forge fmt
+cast call <token-contract-address> "balanceOf(address)" <your-address> \
+    --rpc-url $SEPOLIA_RPC_URL
 ```
 
-### Gas Snapshots
-Generate gas usage reports:
+### Check Current Interest Rate
+
 ```bash
-forge snapshot
+cast call <vault-contract-address> "getCurrentInterestRate()" \
+    --rpc-url $SEPOLIA_RPC_URL
+```
+
+### Check Your Interest Rate
+
+```bash
+cast call <vault-contract-address> "getUserInterestRate(address)" <your-address> \
+    --rpc-url $SEPOLIA_RPC_URL
 ```
 
 ## 🧪 Testing
