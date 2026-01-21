@@ -1,0 +1,72 @@
+{
+  "extends": "solhint:recommended",
+  "plugins": [
+    "solhint-plugin-prettier"
+  ],
+  "rules": {
+    "avoid-suicide": "error",
+    "avoid-throw": "error",
+    "avoid-tx-origin": "error",
+    "bracket-align": "error",
+    "code-complexity": [
+      "warn",
+      4
+    ],
+    "compiler-version": [
+      "error",
+      "^0.8.24"
+    ],
+    "const-name-snakecase": "error",
+    "contract-name-camelcase": "error",
+    "dutch-auction": "off",
+    "event-name-camelcase": "error",
+    "explicit-types": "off",
+    "expression-indent": "error",
+    "func-name-mixedcase": "error",
+    "func-order": "off",
+    "function-max-lines": [
+      "warn",
+      50
+    ],
+    "gas-small-cached-variables": "warn",
+    "imports-on-top": "error",
+    "indent": [
+      "error",
+      4
+    ],
+    "line-length": [
+      "warn",
+      120
+    ],
+    "multiple-inheritance": "off",
+    "named-parameters-mapping": "error",
+    "no-console": "off",
+    "no-empty-blocks": "warn",
+    "no-global-import-in-modifier": "off",
+    "no-inline-assembly": "off",
+    "no-param-assign": "error",
+    "no-shadowing": "error",
+    "no-unused-vars": "error",
+    "not-rely-on-block-hash": "warn",
+    "not-rely-on-time": "off",
+    "one-contract-per-file": "off",
+    "order-named-imports": "error",
+    "ordering": "warn",
+    "payable-fallback": "error",
+    "private-vars-leading-underscore": "error",
+    "quotes": [
+      "error",
+      "double"
+    ],
+    "reason-string": [
+      "warn",
+      {
+        "maxLength": 120
+      }
+    ],
+    "reentrancy": "warn",
+    "state-visibility": "error",
+    "two-lines-top-level-separator": "error",
+    "var-name-mixedcase": "error"
+  }
+}
