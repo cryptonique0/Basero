@@ -1,0 +1,20 @@
+{
+  "name": "basero-subgraph",
+  "version": "1.0.0",
+  "description": "The Graph subgraph for Basero protocol",
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph build",
+    "create-local": "graph create basero-subgraph --node http://localhost:8020",
+    "deploy-local": "graph deploy basero-subgraph --node http://localhost:8020 --ipfs http://localhost:5001",
+    "deploy": "graph deploy --studio basero-subgraph",
+    "test": "graph test"
+  },
+  "dependencies": {
+    "@graphprotocol/graph-cli": "^0.56.0",
+    "@graphprotocol/graph-ts": "^0.31.0"
+  },
+  "devDependencies": {
+    "matchstick-as": "^0.5.0"
+  }
+}
