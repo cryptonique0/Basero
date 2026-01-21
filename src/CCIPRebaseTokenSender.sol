@@ -91,12 +91,15 @@ contract CCIPRebaseTokenSender is Ownable {
         // Burn tokens from sender
         rebaseToken.burn(msg.sender, _amount);
 
-        // Prepare CCIP message
+        // Get user's interest rate to bridge it
+        uint256 userInterestRate = rebaseToken.getInterestRate(msg.sender);
+
+        // Prepare CCIP message with interest rate
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: abi.encode(allowlistedReceiver),
-            data: abi.encode(_receiver, _amount),
+            data: abi.encode(_receiver, _amount, userInterestRate),
             tokenAmounts: new Client.EVMTokenAmount[](0),
-            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 200_000})),
+            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 250_000})),
             feeToken: address(i_linkToken)
         });
 
