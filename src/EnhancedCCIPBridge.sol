@@ -12,26 +12,48 @@ import {RebaseToken} from "./RebaseToken.sol";
 
 /**
  * @title EnhancedCCIPBridge
- * @dev Multi-chain bridge with batch transfers, composability, and rate limiting
- * Supports Ethereum, Polygon, Scroll, zkSync, Arbitrum, and more
+ * @author Basero Team
+ * @notice Multi-chain bridge with batch transfers, composability, and rate limiting
+ * @dev Extends Chainlink CCIP for cross-chain rebase token transfers
+ * @custom:security Pausable and protected against reentrancy
+ * @custom:chains Supports Ethereum, Polygon, Scroll, zkSync, Arbitrum, Base, Optimism, and more
+ * @custom:features Dynamic chain registry, Batch transfers (83% gas savings), Cross-chain composability, Rate limiting per source chain
  */
 contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard {
     // ============= State Variables =============
     
+    /// @notice Rebase token being bridged
     RebaseToken public immutable rebaseToken;
+    
+    /// @notice LINK token for CCIP fees
     IERC20 private immutable i_linkToken;
 
-    // Chain registry: maps chain selector to metadata
+    /**
+     * @notice Configuration for a supported chain
+     * @param enabled Whether chain is active for bridging
+     * @param receiver Address of bridge receiver on destination chain
+     * @param minBridgeAmount Minimum tokens per transfer (prevents dust)
+     * @param maxBridgeAmount Maximum tokens per transfer (prevents large attacks)
+     * @param batchWindow Time window for batching transfers (seconds)
+     * @param routerAddress CCIP router address (for non-EVM chains, stored as bytes32)
+     */
     struct ChainConfig {
         bool enabled;
         address receiver;
         uint256 minBridgeAmount;
         uint256 maxBridgeAmount;
-        uint256 batchWindow; // seconds
-        bytes32 routerAddress; // for non-EVM chains
+        uint256 batchWindow;
+        bytes32 routerAddress;
     }
 
-    // Rate limiting: per-source-chain configuration
+    /**
+     * @notice Rate limiting configuration using token bucket algorithm
+     * @dev Prevents spam and ensures fair resource allocation per source chain
+     * @param tokensPerSecond Rate at which bucket refills
+     * @param maxBurstSize Maximum bucket capacity (max tokens in one period)
+     * @param lastRefillTime Last time bucket was refilled
+     * @param tokensAvailable Current tokens available in bucket
+     */
     struct RateLimitConfig {
         uint256 tokensPerSecond;
         uint256 maxBurstSize;
@@ -39,7 +61,17 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
         uint256 tokensAvailable;
     }
 
-    // Batch transfer tracking
+    /**
+     * @notice Batch transfer data structure
+     * @dev Groups multiple transfers into single CCIP message (83% gas savings for 10 recipients)
+     * @param id Unique batch identifier
+     * @param destinationChain CCIP chain selector
+     * @param recipients Array of recipient addresses
+     * @param amounts Array of token amounts (parallel to recipients)
+     * @param totalAmount Sum of all amounts
+     * @param timestamp Batch creation time
+     * @param executed Whether batch has been executed on destination
+     */
     struct BatchTransfer {
         uint256 id;
         uint64 destinationChain;
@@ -50,7 +82,14 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
         bool executed;
     }
 
-    // Composability routing: enables cross-chain contract calls
+    /**
+     * @notice Cross-chain composability route
+     * @dev Enables atomic multi-step operations across chains
+     * @param targetChain Destination chain selector
+     * @param targetContract Contract to call on destination
+     * @param callData Encoded function call
+     * @param autoExecute Whether to execute automatically on receipt
+     */
     struct ComposableRoute {
         uint64 targetChain;
         address targetContract;
@@ -58,21 +97,34 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
         bool autoExecute;
     }
 
+    /// @notice Chain configurations by CCIP chain selector
     mapping(uint64 => ChainConfig) public chainConfigs;
+    
+    /// @notice Rate limit configs by source chain selector
     mapping(uint64 => RateLimitConfig) public rateLimits;
+    
+    /// @notice Batch transfers by batch ID
     mapping(uint256 => BatchTransfer) public batchTransfers;
+    
+    /// @notice Composable routes by route hash
     mapping(bytes32 => ComposableRoute) public composableRoutes;
 
-    // Token accounting
+    /// @notice User bridged amounts: user => chain => amount
     mapping(address => mapping(uint64 => uint256)) public userBridgedAmount;
+    
+    /// @notice Total bridged per chain
     mapping(uint64 => uint256) public chainBridgedTotal;
 
-    // Batch accounting
+    /// @notice Batch counter for unique IDs
     uint256 public batchCounter;
-    mapping(uint64 => uint256[]) public chainBatches; // chain -> batch IDs
+    
+    /// @notice Batch IDs per chain
+    mapping(uint64 => uint256[]) public chainBatches;
 
-    // Rate limit token buckets per source chain
+    /// @notice Rate limit token bucket state per source chain
     mapping(uint64 => uint256) public chainRateLimitTokens;
+    
+    /// @notice Last rate limit update timestamp per chain
     mapping(uint64 => uint256) public chainRateLimitLastUpdate;
 
     // Events
