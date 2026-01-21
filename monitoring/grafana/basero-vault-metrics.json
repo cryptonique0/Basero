@@ -1,0 +1,264 @@
+{
+  "dashboard": {
+    "title": "Basero Protocol - Vault Metrics",
+    "tags": ["basero", "vault", "defi"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Total Value Locked (TVL)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "basero_vault_total_assets / 1e18",
+            "legendFormat": "TVL (ETH)"
+          }
+        ],
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 0,
+          "y": 0
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "orientation": "auto",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 2
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Total Shares",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "basero_vault_total_shares / 1e18",
+            "legendFormat": "Shares"
+          }
+        ],
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 8,
+          "y": 0
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area"
+        }
+      },
+      {
+        "id": 3,
+        "title": "Share Price",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "basero_vault_share_price / 1e18",
+            "legendFormat": "Price"
+          }
+        ],
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 16,
+          "y": 0
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area"
+        }
+      },
+      {
+        "id": 4,
+        "title": "Utilization Rate",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "basero_vault_utilization_bps / 100",
+            "legendFormat": "Utilization"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 6
+        },
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "max": 100,
+            "min": 0,
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "green"
+                },
+                {
+                  "value": 50,
+                  "color": "yellow"
+                },
+                {
+                  "value": 80,
+                  "color": "orange"
+                },
+                {
+                  "value": 95,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Interest Rate",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "basero_vault_interest_rate / 100",
+            "legendFormat": "APY"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 6
+        },
+        "fieldConfig": {
+          "defaults": {
+            "max": 20,
+            "min": 0,
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "TVL History",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "basero_vault_total_assets / 1e18",
+            "legendFormat": "Total Assets (ETH)"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 14
+        },
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "ETH"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Deposit/Withdraw Activity",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(basero_vault_deposits_total[5m]) * 300",
+            "legendFormat": "Deposits/5min"
+          },
+          {
+            "expr": "rate(basero_vault_withdrawals_total[5m]) * 300",
+            "legendFormat": "Withdrawals/5min"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 22
+        }
+      },
+      {
+        "id": 8,
+        "title": "User Tier Distribution",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "basero_vault_tier_bronze_count",
+            "legendFormat": "Bronze"
+          },
+          {
+            "expr": "basero_vault_tier_silver_count",
+            "legendFormat": "Silver"
+          },
+          {
+            "expr": "basero_vault_tier_gold_count",
+            "legendFormat": "Gold"
+          },
+          {
+            "expr": "basero_vault_tier_platinum_count",
+            "legendFormat": "Platinum"
+          },
+          {
+            "expr": "basero_vault_tier_diamond_count",
+            "legendFormat": "Diamond"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 22
+        }
+      },
+      {
+        "id": 9,
+        "title": "Locked Deposits",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "basero_vault_locked_30_days / 1e18",
+            "legendFormat": "30 Days"
+          },
+          {
+            "expr": "basero_vault_locked_90_days / 1e18",
+            "legendFormat": "90 Days"
+          },
+          {
+            "expr": "basero_vault_locked_365_days / 1e18",
+            "legendFormat": "365 Days"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 30
+        },
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "ETH Locked"
+          }
+        ]
+      }
+    ]
+  }
+}
