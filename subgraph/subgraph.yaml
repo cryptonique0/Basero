@@ -1,0 +1,207 @@
+specVersion: 0.0.5
+schema:
+  file: ./schema.graphql
+
+dataSources:
+  # RebaseToken
+  - kind: ethereum
+    name: RebaseToken
+    network: base-mainnet
+    source:
+      address: "0x0000000000000000000000000000000000000000" # Replace with deployed address
+      abi: RebaseToken
+      startBlock: 0 # Replace with deployment block
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - User
+        - Transfer
+        - Rebase
+        - InterestRate
+      abis:
+        - name: RebaseToken
+          file: ./abis/RebaseToken.json
+      eventHandlers:
+        - event: Transfer(indexed address,indexed address,uint256)
+          handler: handleTransfer
+        - event: Approval(indexed address,indexed address,uint256)
+          handler: handleApproval
+        - event: Rebase(uint256,uint256,uint256,int256)
+          handler: handleRebase
+        - event: InterestRateUpdated(indexed address,uint256,uint256)
+          handler: handleInterestRateUpdated
+        - event: Mint(indexed address,uint256,uint256)
+          handler: handleMint
+        - event: Burn(indexed address,uint256,uint256)
+          handler: handleBurn
+      file: ./src/rebase-token.ts
+
+  # RebaseTokenVault
+  - kind: ethereum
+    name: RebaseTokenVault
+    network: base-mainnet
+    source:
+      address: "0x0000000000000000000000000000000000000000" # Replace with deployed address
+      abi: RebaseTokenVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - User
+        - Deposit
+        - Withdrawal
+        - VaultStats
+      abis:
+        - name: RebaseTokenVault
+          file: ./abis/RebaseTokenVault.json
+      eventHandlers:
+        - event: Deposited(indexed address,uint256,uint256,uint256)
+          handler: handleDeposited
+        - event: Withdrawn(indexed address,uint256,uint256)
+          handler: handleWithdrawn
+        - event: InterestAccrued(uint256,uint256,uint256)
+          handler: handleInterestAccrued
+        - event: ConfigUpdated(uint256,uint256,uint256,uint256,uint256)
+          handler: handleConfigUpdated
+        - event: Paused(address)
+          handler: handlePaused
+        - event: Unpaused(address)
+          handler: handleUnpaused
+      file: ./src/vault.ts
+
+  # VotingEscrow
+  - kind: ethereum
+    name: VotingEscrow
+    network: base-mainnet
+    source:
+      address: "0x0000000000000000000000000000000000000000" # Replace with deployed address
+      abi: VotingEscrow
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - User
+        - Lock
+        - Delegation
+        - Checkpoint
+      abis:
+        - name: VotingEscrow
+          file: ./abis/VotingEscrow.json
+      eventHandlers:
+        - event: LockCreated(indexed address,uint256,uint256,uint256)
+          handler: handleLockCreated
+        - event: LockIncreased(indexed address,uint256,uint256)
+          handler: handleLockIncreased
+        - event: LockExtended(indexed address,uint256,uint256)
+          handler: handleLockExtended
+        - event: Withdrawn(indexed address,uint256)
+          handler: handleWithdrawn
+        - event: DelegateChanged(indexed address,indexed address,indexed address)
+          handler: handleDelegateChanged
+        - event: DelegateVotesChanged(indexed address,uint256,uint256)
+          handler: handleDelegateVotesChanged
+      file: ./src/voting-escrow.ts
+
+  # GovernorAlpha
+  - kind: ethereum
+    name: GovernorAlpha
+    network: base-mainnet
+    source:
+      address: "0x0000000000000000000000000000000000000000" # Replace with deployed address
+      abi: GovernorAlpha
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Proposal
+        - Vote
+        - User
+      abis:
+        - name: GovernorAlpha
+          file: ./abis/GovernorAlpha.json
+      eventHandlers:
+        - event: ProposalCreated(uint256,indexed address,address[],uint256[],string[],bytes[],uint256,uint256,string)
+          handler: handleProposalCreated
+        - event: VoteCast(indexed address,uint256,bool,uint256)
+          handler: handleVoteCast
+        - event: ProposalQueued(indexed uint256,uint256)
+          handler: handleProposalQueued
+        - event: ProposalExecuted(indexed uint256)
+          handler: handleProposalExecuted
+        - event: ProposalCanceled(indexed uint256)
+          handler: handleProposalCanceled
+      file: ./src/governor.ts
+
+  # EnhancedCCIPBridge
+  - kind: ethereum
+    name: EnhancedCCIPBridge
+    network: base-mainnet
+    source:
+      address: "0x0000000000000000000000000000000000000000" # Replace with deployed address
+      abi: EnhancedCCIPBridge
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - BridgeTransfer
+        - BatchTransfer
+        - ChainStats
+        - User
+      abis:
+        - name: EnhancedCCIPBridge
+          file: ./abis/EnhancedCCIPBridge.json
+      eventHandlers:
+        - event: TokensBridged(indexed uint64,indexed address,indexed address,uint256,bytes32)
+          handler: handleTokensBridged
+        - event: TokensReceived(indexed uint64,indexed address,indexed address,uint256,bytes32)
+          handler: handleTokensReceived
+        - event: BatchTransferCreated(indexed uint256,indexed uint64,indexed address,uint256,uint256)
+          handler: handleBatchCreated
+        - event: BatchExecuted(indexed uint256,bytes32,uint256)
+          handler: handleBatchExecuted
+        - event: ChainConfigured(indexed uint64,address,uint256,uint256,bool)
+          handler: handleChainConfigured
+        - event: RateLimitUpdated(indexed uint64,uint256,uint256)
+          handler: handleRateLimitUpdated
+      file: ./src/bridge.ts
+
+  # AdvancedStrategyVault
+  - kind: ethereum
+    name: AdvancedStrategyVault
+    network: base-mainnet
+    source:
+      address: "0x0000000000000000000000000000000000000000" # Replace with deployed address
+      abi: AdvancedStrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - User
+        - UserTier
+        - UserLock
+        - UtilizationSnapshot
+      abis:
+        - name: AdvancedStrategyVault
+          file: ./abis/AdvancedStrategyVault.json
+      eventHandlers:
+        - event: TierChanged(indexed address,uint8,uint8)
+          handler: handleTierChanged
+        - event: DepositLocked(indexed address,uint256,uint256,uint8)
+          handler: handleDepositLocked
+        - event: DepositUnlocked(indexed address,uint256)
+          handler: handleDepositUnlocked
+        - event: UtilizationRateUpdated(uint256,uint256)
+          handler: handleUtilizationRateUpdated
+      file: ./src/advanced-vault.ts

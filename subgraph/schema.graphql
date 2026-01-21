@@ -1,0 +1,459 @@
+type User @entity {
+  id: ID! # Address
+  
+  # Vault activity
+  deposits: [Deposit!]! @derivedFrom(field: "user")
+  withdrawals: [Withdrawal!]! @derivedFrom(field: "user")
+  totalDeposited: BigInt!
+  totalWithdrawn: BigInt!
+  currentVaultBalance: BigInt!
+  currentShares: BigInt!
+  
+  # Token balances
+  tokenBalance: BigInt!
+  tokenShares: BigInt!
+  interestRate: Int!
+  transfers: [Transfer!]! @derivedFrom(field: "from")
+  
+  # Governance
+  locks: [Lock!]! @derivedFrom(field: "user")
+  votingPower: BigInt!
+  delegatedTo: User
+  delegatedFrom: [User!]! @derivedFrom(field: "delegatedTo")
+  votes: [Vote!]! @derivedFrom(field: "voter")
+  proposals: [Proposal!]! @derivedFrom(field: "proposer")
+  
+  # Bridge
+  bridgesSent: [BridgeTransfer!]! @derivedFrom(field: "sender")
+  bridgesReceived: [BridgeTransfer!]! @derivedFrom(field: "recipient")
+  totalBridged: BigInt!
+  totalReceived: BigInt!
+  
+  # Advanced strategies
+  tier: DepositTier!
+  tierBonus: Int!
+  lockInfo: UserLock
+  
+  # Metadata
+  firstSeenTimestamp: BigInt!
+  firstSeenBlock: BigInt!
+  lastActivityTimestamp: BigInt!
+  transactionCount: BigInt!
+}
+
+type Deposit @entity {
+  id: ID! # tx hash + log index
+  user: User!
+  amount: BigInt!
+  shares: BigInt!
+  interestRate: Int!
+  
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  transactionHash: Bytes!
+}
+
+type Withdrawal @entity {
+  id: ID!
+  user: User!
+  amount: BigInt!
+  shares: BigInt!
+  
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  transactionHash: Bytes!
+}
+
+type Transfer @entity {
+  id: ID!
+  from: User!
+  to: User!
+  value: BigInt!
+  
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  transactionHash: Bytes!
+}
+
+type Rebase @entity {
+  id: ID! # epoch number
+  epoch: BigInt!
+  previousSupply: BigInt!
+  newSupply: BigInt!
+  delta: BigInt!
+  percentChange: BigDecimal!
+  
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  transactionHash: Bytes!
+}
+
+type InterestRateChange @entity {
+  id: ID!
+  user: User!
+  oldRate: Int!
+  newRate: Int!
+  
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  transactionHash: Bytes!
+}
+
+type VaultStats @entity {
+  id: ID! # "global"
+  
+  # Totals
+  totalDeposited: BigInt!
+  totalWithdrawn: BigInt!
+  totalShares: BigInt!
+  totalUsers: BigInt!
+  activeUsers: BigInt!
+  
+  # Current state
+  currentBalance: BigInt!
+  currentSupply: BigInt!
+  
+  # Interest
+  totalInterestAccrued: BigInt!
+  lastInterestAccrual: BigInt!
+  
+  # Configuration
+  minDeposit: BigInt!
+  maxDeposit: BigInt!
+  minInterestRate: Int!
+  maxInterestRate: Int!
+  baseInterestRate: Int!
+  
+  # Status
+  isPaused: Boolean!
+  
+  # Metadata
+  lastUpdateTimestamp: BigInt!
+  lastUpdateBlock: BigInt!
+}
+
+type DailySnapshot @entity {
+  id: ID! # date (YYYY-MM-DD)
+  date: Int! # Unix timestamp (start of day)
+  
+  # Vault
+  totalDeposited: BigInt!
+  totalWithdrawn: BigInt!
+  netDeposits: BigInt!
+  tvl: BigInt!
+  uniqueDepositors: Int!
+  
+  # Token
+  totalSupply: BigInt!
+  rebaseCount: Int!
+  totalRebaseAmount: BigInt!
+  
+  # Governance
+  activeProposals: Int!
+  totalVotingPower: BigInt!
+  
+  # Bridge
+  bridgeVolume: BigInt!
+  bridgeCount: Int!
+}
+
+type Lock @entity {
+  id: ID! # user address + lock index
+  user: User!
+  amount: BigInt!
+  unlockTime: BigInt!
+  votingPower: BigInt!
+  
+  isWithdrawn: Boolean!
+  withdrawnAt: BigInt
+  
+  createdAt: BigInt!
+  createdAtBlock: BigInt!
+  lastModifiedAt: BigInt!
+  transactionHash: Bytes!
+}
+
+type Delegation @entity {
+  id: ID! # tx hash + log index
+  delegator: User!
+  fromDelegate: User
+  toDelegate: User!
+  
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  transactionHash: Bytes!
+}
+
+type Checkpoint @entity {
+  id: ID! # user address + block number
+  user: User!
+  votes: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type Proposal @entity {
+  id: ID! # proposal ID
+  proposalId: BigInt!
+  proposer: User!
+  
+  # Proposal details
+  targets: [Bytes!]!
+  values: [BigInt!]!
+  signatures: [String!]!
+  calldatas: [Bytes!]!
+  description: String!
+  
+  # Voting period
+  startBlock: BigInt!
+  endBlock: BigInt!
+  
+  # State
+  state: ProposalState!
+  
+  # Votes
+  forVotes: BigInt!
+  againstVotes: BigInt!
+  votes: [Vote!]! @derivedFrom(field: "proposal")
+  
+  # Execution
+  eta: BigInt
+  queuedAt: BigInt
+  executedAt: BigInt
+  canceledAt: BigInt
+  
+  # Metadata
+  createdAt: BigInt!
+  createdAtBlock: BigInt!
+  transactionHash: Bytes!
+}
+
+enum ProposalState {
+  Pending
+  Active
+  Canceled
+  Defeated
+  Succeeded
+  Queued
+  Expired
+  Executed
+}
+
+type Vote @entity {
+  id: ID! # proposal ID + voter address
+  proposal: Proposal!
+  voter: User!
+  support: Boolean!
+  votes: BigInt!
+  
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  transactionHash: Bytes!
+}
+
+type BridgeTransfer @entity {
+  id: ID! # message ID
+  messageId: Bytes!
+  
+  sender: User!
+  recipient: Bytes! # May be on different chain
+  amount: BigInt!
+  
+  sourceChain: BigInt!
+  destinationChain: BigInt!
+  
+  status: BridgeStatus!
+  
+  # Batch info (if part of batch)
+  batch: BatchTransfer
+  
+  # Timestamps
+  sentAt: BigInt!
+  sentAtBlock: BigInt!
+  completedAt: BigInt
+  completedAtBlock: BigInt
+  
+  transactionHash: Bytes!
+}
+
+enum BridgeStatus {
+  Sent
+  Received
+  Failed
+}
+
+type BatchTransfer @entity {
+  id: ID! # batch ID
+  batchId: BigInt!
+  creator: User!
+  destinationChain: BigInt!
+  
+  # Recipients and amounts
+  recipients: [Bytes!]!
+  amounts: [BigInt!]!
+  totalAmount: BigInt!
+  recipientCount: Int!
+  
+  # Execution
+  isExecuted: Boolean!
+  messageId: Bytes
+  executedAt: BigInt
+  
+  # Metadata
+  createdAt: BigInt!
+  createdAtBlock: BigInt!
+  transactionHash: Bytes!
+}
+
+type ChainStats @entity {
+  id: ID! # chain selector
+  chainSelector: BigInt!
+  
+  # Configuration
+  receiverAddress: Bytes
+  minAmount: BigInt!
+  maxAmount: BigInt!
+  isEnabled: Boolean!
+  
+  # Rate limiting
+  tokensPerSecond: BigInt!
+  maxBurstSize: BigInt!
+  
+  # Volume
+  totalBridgedOut: BigInt!
+  totalBridgedIn: BigInt!
+  totalBatches: BigInt!
+  
+  # Activity
+  transferCount: BigInt!
+  uniqueUsers: BigInt!
+  
+  lastActivity: BigInt!
+}
+
+type UserTier @entity {
+  id: ID! # user address
+  user: User!
+  tier: DepositTier!
+  bonus: Int!
+  
+  # History
+  previousTier: DepositTier
+  changedAt: BigInt!
+  changedAtBlock: BigInt!
+}
+
+enum DepositTier {
+  Bronze
+  Silver
+  Gold
+  Platinum
+  Diamond
+}
+
+type UserLock @entity {
+  id: ID! # user address
+  user: User!
+  amount: BigInt!
+  unlockTime: BigInt!
+  period: LockPeriod!
+  bonusMultiplier: Int!
+  
+  isActive: Boolean!
+  
+  lockedAt: BigInt!
+  lockedAtBlock: BigInt!
+  unlockedAt: BigInt
+}
+
+enum LockPeriod {
+  None
+  ThirtyDays
+  NinetyDays
+  ThreeSixtyFiveDays
+}
+
+type UtilizationSnapshot @entity {
+  id: ID! # timestamp
+  utilizationRate: Int!
+  currentRate: Int!
+  totalDeposited: BigInt!
+  maxTotalDeposits: BigInt!
+  
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type GlobalStats @entity {
+  id: ID! # "global"
+  
+  # Protocol totals
+  totalValueLocked: BigInt!
+  totalUsers: BigInt!
+  totalTransactions: BigInt!
+  
+  # Token
+  totalSupply: BigInt!
+  totalShares: BigInt!
+  totalRebases: BigInt!
+  
+  # Governance
+  totalProposals: BigInt!
+  activeProposals: BigInt!
+  totalVotingPower: BigInt!
+  totalVotes: BigInt!
+  
+  # Bridge
+  totalBridgeVolume: BigInt!
+  totalBridgeTransfers: BigInt!
+  activeChainsCount: Int!
+  
+  # Last updated
+  lastUpdateTimestamp: BigInt!
+  lastUpdateBlock: BigInt!
+}
+
+type Transaction @entity {
+  id: ID! # tx hash
+  hash: Bytes!
+  from: Bytes!
+  to: Bytes
+  value: BigInt!
+  gasUsed: BigInt!
+  gasPrice: BigInt!
+  
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  
+  # Events in this transaction
+  deposits: [Deposit!]! @derivedFrom(field: "transactionHash")
+  withdrawals: [Withdrawal!]! @derivedFrom(field: "transactionHash")
+  transfers: [Transfer!]! @derivedFrom(field: "transactionHash")
+  votes: [Vote!]! @derivedFrom(field: "transactionHash")
+  bridgeTransfers: [BridgeTransfer!]! @derivedFrom(field: "transactionHash")
+}
+
+type PerformanceFee @entity {
+  id: ID! # user address + timestamp
+  user: User!
+  amount: BigInt!
+  highWaterMark: BigInt!
+  
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  transactionHash: Bytes!
+}
+
+type GovernanceConfig @entity {
+  id: ID! # "config"
+  
+  votingDelay: BigInt!
+  votingPeriod: BigInt!
+  proposalThreshold: BigInt!
+  quorumVotes: BigInt!
+  
+  timelockDelay: BigInt!
+  timelockAdmin: Bytes!
+  
+  lastUpdated: BigInt!
+}
