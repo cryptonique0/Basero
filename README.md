@@ -1,82 +1,152 @@
 # Cross-Chain Rebase Token
 
-A sophisticated cross-chain rebase token implementation using **Foundry**, **OpenZeppelin**, and **Chainlink CCIP** (Cross-Chain Interoperability Protocol). This project enables dynamic token supply adjustments (rebasing) across multiple blockchain networks with seamless cross-chain transfers.
+A sophisticated cross-chain rebase token implementation using **Foundry**, **OpenZeppelin**, and **Chainlink CCIP**. This project enables users to deposit ETH in exchange for rebase tokens that accrue rewards over time, with seamless cross-chain transfers.
 
-## 🌟 Features
+*This is a section of the Cyfrin Foundry Solidity course.*
 
-- **Rebase Mechanism**: Automatically adjusts token supply while maintaining proportional ownership
-- **Cross-Chain Transfers**: Seamlessly transfer tokens across different blockchain networks using Chainlink CCIP
-- **Shares-Based System**: Uses an internal shares system to efficiently handle rebasing
-- **Secure Implementation**: Built on OpenZeppelin's battle-tested contracts
-- **Flexible Rebasing**: Support for both absolute and percentage-based supply adjustments
-- **Comprehensive Testing**: Full test coverage using Foundry's testing framework
+## 🌟 About
 
-## 📋 Table of Contents
+This project is a cross-chain rebase token where users can deposit ETH in exchange for rebase tokens which accrue rewards over time. The token uses Chainlink CCIP to enable users to bridge their tokens cross-chain while maintaining their interest rates.
 
-- [Features](#-features)
-- [Prerequisites](#-prerequisites)
-- [Installation](#-installation)
-- [Project Structure](#-project-structure)
-- [Smart Contracts](#-smart-contracts)
-- [Setup](#-setup)
-- [Usage](#-usage)
-- [Testing](#-testing)
-- [Deployment](#-deployment)
-- [Cross-Chain Configuration](#-cross-chain-configuration)
-- [Gas Optimization](#-gas-optimization)
-- [Security Considerations](#-security-considerations)
-- [Contributing](#-contributing)
-- [License](#-license)
+### Key Features
 
-## 🔧 Prerequisites
+- **ETH Vault**: Deposit ETH to receive rebase tokens
+- **Interest Accrual**: Tokens automatically earn interest over time
+- **Discrete Interest Rates**: Early depositors get higher rates that decrease over time
+- **Cross-Chain Bridging**: Transfer tokens across chains via Chainlink CCIP
+- **Interest Rate Persistence**: Your interest rate bridges with you and stays static
+- **L1-Only Deposits/Withdrawals**: Maintain security by limiting deposits and withdrawals to L1
 
-- [Foundry](https://book.getfoundry.sh/getting-started/installation) - Smart contract development framework
-- [Git](https://git-scm.com/)
-- Node.js v16+ (optional, for additional tooling)
+## 📋 Project Design and Assumptions
 
-## 📦 Installation
+- Interest rates decrease discretely as more ETH is deposited
+- Users lock in their interest rate when they first deposit
+- When bridging to L2, the interest rate bridges with the tokens and stays static
+- Users can only deposit and withdraw on the L1 (source chain)
+- No interest is earned during the bridging period
+- Protocol rewards early users and users who bridge to L2
+- Assumed rewards are held in the contract
 
-1. **Clone the repository**:
+## � Installation
+
+### Requirements
+
+- **Git**: Version control
+  - Test: `git --version`
+  - Expected: `git version x.x.x`
+- **Foundry**: Smart contract development framework
+  - Test: `forge --version`
+  - Expected: `forge 0.2.0 (816e00b 2023-03-16T00:05:26.396218Z)` or newer
+
+### Quickstart
+
 ```bash
-git clone https://github.com/your-username/crossChainRebaseToken.git
-cd crossChainRebaseToken
+git clone https://github.com/Cyfrin/foundry-cross-chain-rebase-token-cu
+cd foundry-cross-chain-rebase-token-cu
+forge build
 ```
 
-2. **Install dependencies**:
+## ⚙️ Setup
+
+1. **Install dependencies**:
 ```bash
 forge install
 ```
 
-This will install:
+This installs:
 - OpenZeppelin Contracts
 - Chainlink Contracts
+- Chainlink CCIP
 - Forge Standard Library
 
-3. **Set up environment variables**:
+2. **Set up environment variables**:
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and add your private keys and RPC URLs.
+Edit `.env` and add:
+- `PRIVATE_KEY`: Your wallet private key (⚠️ **Use a development key only!**)
+- `SEPOLIA_RPC_URL`: Sepolia testnet RPC URL (get from [Alchemy](https://alchemy.com))
+- `ETHERSCAN_API_KEY`: For contract verification (optional)
+
+## � Usage
+
+### Start a Local Node
+
+```bash
+make anvil
+```
+
+### Build
+
+Compile the contracts:
+
+```bash
+forge build
+```
+
+### Test
+
+Run the test suite:
+
+```bash
+forge test
+```
+
+Run with verbosity:
+
+```bash
+forge test -vvv
+```
+
+### Test Coverage
+
+```bash
+forge coverage
+```
+
+For detailed coverage:
+
+```bash
+forge coverage --report debug
+```
+
+### Format
+
+Format Solidity code:
+
+```bash
+forge fmt
+```
+
+### Gas Snapshots
+
+Generate gas usage snapshots:
+
+```bash
+forge snapshot
+```
 
 ## 📁 Project Structure
 
 ```
 crossChainRebaseToken/
 ├── src/
-│   ├── RebaseToken.sol                 # Core rebase token contract
-│   ├── CCIPRebaseTokenSender.sol       # Cross-chain sender contract
-│   └── CCIPRebaseTokenReceiver.sol     # Cross-chain receiver contract
-├── script/
-│   ├── DeployRebaseToken.s.sol         # Deploy rebase token only
-│   ├── DeployCrossChainRebaseToken.s.sol # Deploy full system
-│   └── ConfigureCCIP.s.sol             # Configure cross-chain connections
+│   ├── RebaseToken.sol                 # Core rebase token with interest mechanics
+│   ├── RebaseTokenVault.sol            # ETH vault for deposits/withdrawals
+│   ├── CCIPRebaseTokenSender.sol       # Cross-chain sender (bridges interest rate)
+│   └── CCIPRebaseTokenReceiver.sol     # Cross-chain receiver
 ├── test/
-│   ├── RebaseToken.t.sol               # Rebase token tests
+│   ├── RebaseToken.t.sol               # Token tests
+│   ├── RebaseTokenVault.t.sol          # Vault and interest tests
 │   └── CCIPRebaseToken.t.sol           # CCIP integration tests
+├── script/
+│   ├── DeployVault.s.sol               # Deploy token and vault
+│   ├── DeployCrossChainRebaseToken.s.sol # Deploy full cross-chain system
+│   └── ConfigureCCIP.s.sol             # Configure cross-chain connections
 ├── foundry.toml                         # Foundry configuration
-├── remappings.txt                       # Import remappings
-└── README.md
+├── Makefile                             # Build automation
+└── README.md                            # This file
 ```
 
 ## 🔐 Smart Contracts
