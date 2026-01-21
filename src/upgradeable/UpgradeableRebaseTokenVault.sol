@@ -235,7 +235,14 @@ contract UpgradeableRebaseTokenVault is
     }
     
     /**
-     * @dev Accrue interest (rebase supply)
+     * @notice Accrue interest by rebasing token supply upward
+     * @dev Callable by anyone after accrualPeriod has elapsed. Applies dailyAccrualCap
+     * @dev Calculates interest based on average rate, then rebases total supply
+     * @custom:gas ~45k gas (includes rebase call to token contract)
+     * @custom:emits InterestAccrued
+     * @custom:security Pausable to prevent accrual during emergencies
+     * @custom:timing Must wait accrualPeriod (default 1 day) between accruals
+     * @custom:example 1000 supply at 10% rate = 100 interest (capped at dailyAccrualCap)
      */
     function accrueInterest() external whenNotPaused {
         if (block.timestamp < lastAccrualTime + accrualPeriod) {
@@ -265,8 +272,11 @@ contract UpgradeableRebaseTokenVault is
     }
     
     /**
-     * @dev Calculate average interest rate (simplified)
-     * @return Average rate in basis points
+     * @notice Calculate average interest rate across all users
+     * @dev Simplified implementation: returns current interest rate
+     * @dev Future versions could implement weighted average by balance
+     * @return averageRate Average rate in basis points
+     * @custom:gas ~3k gas (calls getCurrentInterestRate)
      */
     function _calculateAverageRate() internal view returns (uint256) {
         // Simplified: use current rate
@@ -275,24 +285,54 @@ contract UpgradeableRebaseTokenVault is
     
     // ============= Configuration =============
     
+    /**
+     * @notice Set the base interest rate (starting rate at 0 deposits)
+     * @dev Must be between 0 and 10000 basis points (0-100%)
+     * @param newRate New base rate in basis points (e.g., 1000 = 10%)
+     * @custom:gas ~30k gas (SSTORE + event)
+     * @custom:emits ConfigUpdated
+     * @custom:security Owner-only to prevent rate manipulation
+     */
     function setBaseInterestRate(uint256 newRate) external onlyOwner {
         if (newRate == 0 || newRate > 10000) revert InvalidConfig();
         baseInterestRate = newRate;
         emit ConfigUpdated("baseInterestRate", newRate);
     }
     
+    /**
+     * @notice Set the rate decrement per threshold
+     * @dev Amount to decrease rate for each decrementThreshold deposits
+     * @param newDecrement Decrement amount in basis points (max 1000 = 10%)
+     * @custom:gas ~30k gas (SSTORE + event)
+     * @custom:emits ConfigUpdated
+     */
     function setRateDecrement(uint256 newDecrement) external onlyOwner {
         if (newDecrement > 1000) revert InvalidConfig();
         rateDecrement = newDecrement;
         emit ConfigUpdated("rateDecrement", newDecrement);
     }
     
+    /**
+     * @notice Set the threshold for rate decrements
+     * @dev Interest rate decreases by rateDecrement for each threshold of deposits
+     * @param newThreshold Threshold amount in wei (e.g., 10 ether)
+     * @custom:gas ~30k gas (SSTORE + event)
+     * @custom:emits ConfigUpdated
+     * @custom:example threshold=10 ether means rate drops every 10 ETH deposited
+     */
     function setDecrementThreshold(uint256 newThreshold) external onlyOwner {
         if (newThreshold == 0) revert InvalidConfig();
         decrementThreshold = newThreshold;
         emit ConfigUpdated("decrementThreshold", newThreshold);
     }
     
+    /**
+     * @notice Set the minimum interest rate floor
+     * @dev Rate cannot decrease below this value regardless of deposits
+     * @param newMin Minimum rate in basis points (must be ≤ baseInterestRate)
+     * @custom:gas ~30k gas (SSTORE + event)
+     * @custom:emits ConfigUpdated
+     */
     function setMinimumRate(uint256 newMin) external onlyOwner {
         if (newMin == 0 || newMin > baseInterestRate) revert InvalidConfig();
         minimumRate = newMin;
