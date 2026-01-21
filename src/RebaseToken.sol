@@ -157,59 +157,42 @@ contract RebaseToken is ERC20, Ownable {
         emit SharesTransferred(from, to, sharesAmount);
     }
 
-    /**
-     * @dev Rebase the token supply
-     * @param newTotalSupply The new total supply
-     * @notice This function adjusts the total supply while keeping shares constant
-     */
-    function rebase(uint256 newTotalSupply) external onlyOwner {
-        require(newTotalSupply > 0, "New supply must be positive");
-        uint256 oldTotalSupply = _totalSupply;
-        _totalSupply = newTotalSupply;
-        emit Rebase(oldTotalSupply, newTotalSupply, block.timestamp);
-    }
+    /*//////////////////////////////////////////////////////////////
+                        MINT AND BURN FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /**
-     * @dev Rebase by percentage (in basis points, 10000 = 100%)
-     * @param basisPoints Percentage in basis points (e.g., 500 = 5% increase)
-     * @param isIncrease True for increase, false for decrease
-     */
-    function rebaseByPercentage(uint256 basisPoints, bool isIncrease) external onlyOwner {
-        require(basisPoints > 0, "Basis points must be positive");
-        require(basisPoints <= 10_000, "Basis points cannot exceed 100%");
-
-        uint256 oldTotalSupply = _totalSupply;
-        uint256 adjustment = (_totalSupply * basisPoints) / 10_000;
-
-        if (isIncrease) {
-            _totalSupply += adjustment;
-        } else {
-            require(_totalSupply > adjustment, "Decrease too large");
-            _totalSupply -= adjustment;
-        }
-
-        emit Rebase(oldTotalSupply, _totalSupply, block.timestamp);
-    }
-
-    /**
-     * @dev Mint new tokens (creates new shares)
+     * @dev Mint new tokens with specific interest rate
      * @param to Recipient address
      * @param amount Amount of tokens to mint
+     * @param interestRate Interest rate for this user (in basis points)
      */
-    function mint(address to, uint256 amount) external onlyOwner {
+    function mint(address to, uint256 amount, uint256 interestRate) external onlyOwner {
         require(to != address(0), "Mint to zero address");
         require(amount > 0, "Amount must be positive");
 
-        uint256 sharesToMint = getSharesByTokenAmount(amount);
-        _totalShares += sharesToMint;
-        _totalSupply += amount;
-        _shares[to] += sharesToMint;
+        uint256 sharesToMint;
+        if (s_totalSupply == 0) {
+            sharesToMint = amount;
+        } else {
+            sharesToMint = getSharesByTokenAmount(amount);
+        }
+
+        s_totalShares += sharesToMint;
+        s_totalSupply += amount;
+        s_shares[to] += sharesToMint;
+
+        // Set or update user's interest rate
+        if (s_userInterestRate[to] == 0) {
+            s_userInterestRate[to] = interestRate;
+            emit InterestRateSet(to, interestRate);
+        }
 
         emit Transfer(address(0), to, amount);
     }
 
     /**
-     * @dev Burn tokens (destroys shares)
+     * @dev Burn tokens from an address
      * @param from Address to burn from
      * @param amount Amount of tokens to burn
      */
@@ -219,10 +202,32 @@ contract RebaseToken is ERC20, Ownable {
         require(balanceOf(from) >= amount, "Burn amount exceeds balance");
 
         uint256 sharesToBurn = getSharesByTokenAmount(amount);
-        _totalShares -= sharesToBurn;
-        _totalSupply -= amount;
-        _shares[from] -= sharesToBurn;
+        s_totalShares -= sharesToBurn;
+        s_totalSupply -= amount;
+        s_shares[from] -= sharesToBurn;
 
         emit Transfer(from, address(0), amount);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        INTEREST ACCRUAL FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @dev Apply interest to the total supply (rebase)
+     * @param additionalSupply Amount to add to total supply
+     */
+    function accrueInterest(uint256 additionalSupply) external onlyOwner {
+        s_totalSupply += additionalSupply;
+    }
+
+    /**
+     * @dev Update a user's interest rate (used when bridging)
+     * @param user The user's address
+     * @param newRate The new interest rate
+     */
+    function setUserInterestRate(address user, uint256 newRate) external onlyOwner {
+        s_userInterestRate[user] = newRate;
+        emit InterestRateSet(user, newRate);
     }
 }
