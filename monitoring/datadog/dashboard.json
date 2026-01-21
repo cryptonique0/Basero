@@ -1,0 +1,286 @@
+{
+  "board_title": "Basero Protocol - System Dashboard",
+  "description": "Real-time monitoring for Basero DeFi Protocol",
+  "widgets": [
+    {
+      "id": 0,
+      "definition": {
+        "title": "System Status",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "check_status",
+        "check": "basero.system.health",
+        "grouping": "cluster",
+        "group_by": [],
+        "tags": ["env:production", "service:basero"]
+      },
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "width": 24,
+        "height": 12
+      }
+    },
+    {
+      "id": 1,
+      "definition": {
+        "title": "Components Operational",
+        "title_size": "16",
+        "title_align": "left",
+        "show_legend": true,
+        "legend_layout": "auto",
+        "legend_columns": ["avg", "min", "max", "value", "sum"],
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:basero.components.operational{*}"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "dog_classic",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "line"
+          }
+        ]
+      },
+      "layout": {
+        "x": 24,
+        "y": 0,
+        "width": 48,
+        "height": 24
+      }
+    },
+    {
+      "id": 2,
+      "definition": {
+        "title": "Vault Utilization Rate",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "query_value",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1 / 100"
+              }
+            ],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:basero.vault.utilization_bps{*}",
+                "aggregator": "avg"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": true,
+        "custom_unit": "%",
+        "precision": 2
+      },
+      "layout": {
+        "x": 72,
+        "y": 0,
+        "width": 24,
+        "height": 12
+      }
+    },
+    {
+      "id": 3,
+      "definition": {
+        "title": "Token Total Supply",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1 / 1000000000000000000"
+              }
+            ],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:basero.token.total_supply{*}"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "blue",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "area"
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 24,
+        "width": 48,
+        "height": 24
+      }
+    },
+    {
+      "id": 4,
+      "definition": {
+        "title": "Vault TVL (ETH)",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1 / 1000000000000000000"
+              }
+            ],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:basero.vault.total_assets{*}"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "green",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "area"
+          }
+        ]
+      },
+      "layout": {
+        "x": 48,
+        "y": 24,
+        "width": 48,
+        "height": 24
+      }
+    },
+    {
+      "id": 5,
+      "definition": {
+        "title": "Rebase Index",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1 / 1000000000000000000"
+              }
+            ],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:basero.token.rebase_index{*}"
+              }
+            ],
+            "response_format": "timeseries"
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 48,
+        "width": 48,
+        "height": 24
+      }
+    },
+    {
+      "id": 6,
+      "definition": {
+        "title": "Time Since Last Rebase",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1 / 3600"
+              }
+            ],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:basero.token.time_since_rebase{*}"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "orange"
+            }
+          }
+        ],
+        "markers": [
+          {
+            "value": "y = 25",
+            "display_type": "error dashed",
+            "label": "Rebase Overdue"
+          }
+        ]
+      },
+      "layout": {
+        "x": 48,
+        "y": 48,
+        "width": 48,
+        "height": 24
+      }
+    },
+    {
+      "id": 7,
+      "definition": {
+        "title": "Active Alerts",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "alert_graph",
+        "alert_id": "basero.vault.utilization.high",
+        "viz_type": "timeseries"
+      },
+      "layout": {
+        "x": 0,
+        "y": 72,
+        "width": 96,
+        "height": 24
+      }
+    }
+  ],
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "available_values": ["production", "staging", "development"],
+      "default": "production"
+    },
+    {
+      "name": "network",
+      "prefix": "network",
+      "available_values": ["sepolia", "base", "mainnet"],
+      "default": "sepolia"
+    }
+  ],
+  "layout_type": "ordered",
+  "notify_list": [],
+  "reflow_type": "fixed"
+}
