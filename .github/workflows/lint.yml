@@ -1,0 +1,57 @@
+name: Lint & Code Quality
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install solhint
+        run: npm install -g solhint solhint-plugin-prettier
+
+      - name: Run solhint
+        run: solhint 'src/**/*.sol'
+        continue-on-error: false
+
+  fmt-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Check formatting
+        run: forge fmt --check
+
+  security-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for private keys
+        run: |
+          if git log -p --all | grep -E "(PRIVATE_KEY|0x[a-fA-F0-9]{64})" | grep -v "test"; then
+            echo "❌ Private key detected in commit history!"
+            exit 1
+          fi
+          echo "✅ No private keys detected"
+
+  lint-results:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [lint, fmt-check]
+    steps:
+      - name: Report Status
+        run: |
+          if [ "${{ needs.lint.result }}" = "failure" ] || [ "${{ needs.fmt-check.result }}" = "failure" ]; then
+            echo "❌ Lint or formatting checks failed"
+            exit 1
+          fi
+          echo "✅ All quality checks passed"
