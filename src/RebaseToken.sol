@@ -6,34 +6,45 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title RebaseToken
- * @dev An ERC20 token with rebase functionality that adjusts balances proportionally
- * @notice This token uses a shares-based system where user balances are calculated dynamically
+ * @dev Cross-chain rebase token with interest accrual mechanics
+ * @notice This token tracks user shares and applies interest rates that can vary per user
  */
 contract RebaseToken is ERC20, Ownable {
+    /*//////////////////////////////////////////////////////////////
+                            STATE VARIABLES
+    //////////////////////////////////////////////////////////////*/
+
     // Total shares representing ownership
-    uint256 private _totalShares;
+    uint256 private s_totalShares;
 
     // Mapping from account to shares owned
-    mapping(address => uint256) private _shares;
+    mapping(address => uint256) private s_shares;
+
+    // Mapping from account to their locked interest rate (in basis points, 10000 = 100%)
+    mapping(address => uint256) private s_userInterestRate;
 
     // Total supply of tokens (can be rebased)
-    uint256 private _totalSupply;
+    uint256 private s_totalSupply;
 
-    // Rebase events
-    event Rebase(uint256 oldTotalSupply, uint256 newTotalSupply, uint256 timestamp);
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
+
     event SharesTransferred(address indexed from, address indexed to, uint256 sharesAmount);
+    event InterestRateSet(address indexed user, uint256 interestRate);
+
+    /*//////////////////////////////////////////////////////////////
+                             CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
 
     /**
-     * @dev Constructor that gives msg.sender all of existing tokens
+     * @dev Constructor that initializes the token
      * @param name_ Token name
      * @param symbol_ Token symbol
-     * @param initialSupply Initial token supply
      */
-    constructor(string memory name_, string memory symbol_, uint256 initialSupply) ERC20(name_, symbol_) Ownable(msg.sender) {
-        _totalSupply = initialSupply;
-        _totalShares = initialSupply;
-        _shares[msg.sender] = initialSupply;
-        emit Transfer(address(0), msg.sender, initialSupply);
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) Ownable(msg.sender) {
+        s_totalSupply = 0;
+        s_totalShares = 0;
     }
 
     /**
