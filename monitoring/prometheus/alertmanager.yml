@@ -1,0 +1,152 @@
+# Alertmanager Configuration for Basero Protocol
+
+global:
+  resolve_timeout: 5m
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Templates for notifications
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route tree
+route:
+  receiver: 'basero-default'
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  
+  routes:
+    # Critical alerts go to PagerDuty + Slack
+    - match:
+        severity: critical
+      receiver: 'basero-critical'
+      group_wait: 10s
+      repeat_interval: 1h
+      
+    # High severity to Slack only
+    - match:
+        severity: high
+      receiver: 'basero-high'
+      repeat_interval: 2h
+      
+    # Medium/Warning to Slack (less frequent)
+    - match_re:
+        severity: ^(medium|warning)$
+      receiver: 'basero-medium'
+      repeat_interval: 12h
+      
+    # SLO alerts to dedicated channel
+    - match:
+        type: slo
+      receiver: 'basero-slo'
+      repeat_interval: 6h
+      
+    # Governance alerts
+    - match:
+        team: governance
+      receiver: 'basero-governance'
+      repeat_interval: 24h
+
+# Inhibition rules (prevent alert spam)
+inhibit_rules:
+  # If system is down, inhibit component-specific alerts
+  - source_match:
+      alertname: 'BaseroSystemDown'
+    target_match_re:
+      alertname: '^Basero.*Component.*'
+    equal: ['cluster']
+    
+  # If component is down, inhibit related warnings
+  - source_match:
+      alertname: 'BaseroComponentDown'
+    target_match:
+      severity: 'warning'
+    equal: ['cluster', 'component']
+    
+  # If vault at max capacity, inhibit high utilization alert
+  - source_match:
+      alertname: 'BaseroVaultMaxCapacity'
+    target_match:
+      alertname: 'BaseroVaultHighUtilization'
+    equal: ['cluster']
+
+# Receiver configurations
+receivers:
+  # Default receiver (catch-all)
+  - name: 'basero-default'
+    slack_configs:
+      - channel: '#basero-alerts'
+        title: '{{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        
+  # Critical alerts (PagerDuty + Slack)
+  - name: 'basero-critical'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        severity: 'critical'
+        details:
+          firing: '{{ .Alerts.Firing | len }}'
+          resolved: '{{ .Alerts.Resolved | len }}'
+          
+    slack_configs:
+      - channel: '#basero-critical'
+        color: 'danger'
+        title: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          {{ if .CommonAnnotations.action }}*Action Required:* {{ .CommonAnnotations.action }}{{ end }}
+          {{ if .CommonAnnotations.runbook }}*Runbook:* {{ .CommonAnnotations.runbook }}{{ end }}
+        fields:
+          - title: 'Severity'
+            value: '{{ .CommonLabels.severity }}'
+            short: true
+          - title: 'Component'
+            value: '{{ .CommonLabels.component }}'
+            short: true
+          - title: 'Firing Alerts'
+            value: '{{ .Alerts.Firing | len }}'
+            short: true
+          - title: 'Environment'
+            value: '{{ .CommonLabels.environment }}'
+            short: true
+        
+  # High severity alerts (Slack only)
+  - name: 'basero-high'
+    slack_configs:
+      - channel: '#basero-alerts'
+        color: 'warning'
+        title: '⚠️  HIGH: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          {{ if .CommonAnnotations.action }}*Action:* {{ .CommonAnnotations.action }}{{ end }}
+        
+  # Medium/Warning alerts
+  - name: 'basero-medium'
+    slack_configs:
+      - channel: '#basero-monitoring'
+        color: '#FFAA00'
+        title: 'ℹ️  {{ .CommonLabels.severity | toUpper }}: {{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.summary }}\n{{ .CommonAnnotations.description }}'
+        
+  # SLO alerts
+  - name: 'basero-slo'
+    slack_configs:
+      - channel: '#basero-sre'
+        color: '#9C27B0'
+        title: '📊 SLO Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          *Action:* {{ .CommonAnnotations.action }}
+        
+  # Governance alerts
+  - name: 'basero-governance'
+    slack_configs:
+      - channel: '#basero-governance'
+        title: '🏛️  Governance: {{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.summary }}\n{{ .CommonAnnotations.description }}'

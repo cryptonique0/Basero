@@ -1,0 +1,306 @@
+# Prometheus Alert Rules for Basero Protocol
+
+groups:
+  # ============================================
+  # CRITICAL ALERTS
+  # ============================================
+  - name: basero_critical
+    interval: 30s
+    rules:
+      # System completely down
+      - alert: BaseroSystemDown
+        expr: basero_system_operational == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: protocol
+          component: system
+        annotations:
+          summary: "Basero system is not operational"
+          description: "The Basero protocol system has been non-operational for 5 minutes. Operational components: {{ $value }}/6"
+          runbook: "https://docs.basero.io/runbooks/system-down"
+          
+      # Multiple components failing
+      - alert: BaseroMultipleComponentsDown
+        expr: basero_components_operational < 4
+        for: 5m
+        labels:
+          severity: critical
+          team: protocol
+        annotations:
+          summary: "Multiple Basero components are failing"
+          description: "Only {{ $value }} out of 6 components are operational"
+          runbook: "https://docs.basero.io/runbooks/multiple-failures"
+          
+      # Rebase critically overdue
+      - alert: BaseroRebaseCriticallyOverdue
+        expr: basero_token_time_since_rebase > 108000
+        for: 5m
+        labels:
+          severity: critical
+          team: protocol
+          component: token
+        annotations:
+          summary: "Token rebase is critically overdue"
+          description: "Last rebase was {{ $value | humanizeDuration }} ago. Expected interval: 24 hours"
+          action: "Immediately check rebase keeper bot and manually trigger if necessary"
+          runbook: "https://docs.basero.io/runbooks/rebase-overdue"
+          
+      # Vault at max capacity
+      - alert: BaseroVaultMaxCapacity
+        expr: basero_vault_utilization_bps >= 10000
+        for: 1m
+        labels:
+          severity: critical
+          team: protocol
+          component: vault
+        annotations:
+          summary: "Vault has reached maximum capacity"
+          description: "Vault utilization: {{ $value | humanize }}%. No new deposits possible"
+          action: "Increase maxTotalDeposits or communicate capacity limits"
+          runbook: "https://docs.basero.io/runbooks/vault-capacity"
+
+  # ============================================
+  # HIGH SEVERITY ALERTS
+  # ============================================
+  - name: basero_high
+    interval: 60s
+    rules:
+      # Vault high utilization
+      - alert: BaseroVaultHighUtilization
+        expr: basero_vault_utilization_bps > 9500
+        for: 15m
+        labels:
+          severity: high
+          team: protocol
+          component: vault
+        annotations:
+          summary: "Vault utilization above 95%"
+          description: "Current utilization: {{ $value | humanize }}%"
+          action: "Monitor deposit activity and prepare for capacity limits"
+          
+      # Rebase overdue warning
+      - alert: BaseroRebaseOverdue
+        expr: basero_token_time_since_rebase > 90000
+        for: 10m
+        labels:
+          severity: high
+          team: protocol
+          component: token
+        annotations:
+          summary: "Token rebase is overdue"
+          description: "Last rebase was {{ $value | humanizeDuration }} ago"
+          action: "Check rebase keeper bot status"
+          
+      # Bridge message failures
+      - alert: BaserobridgeMessageFailures
+        expr: rate(basero_bridge_failed_messages[30m]) > 0.1
+        for: 15m
+        labels:
+          severity: high
+          team: protocol
+          component: bridge
+        annotations:
+          summary: "Bridge messages are failing"
+          description: "Failure rate: {{ $value | humanizePercentage }} in last 30m"
+          action: "Check cross-chain connectivity and message validity"
+          
+      # Component down
+      - alert: BaseroComponentDown
+        expr: |
+          basero_token_operational == 0 or
+          basero_vault_operational == 0 or
+          basero_bridge_operational == 0 or
+          basero_governance_operational == 0 or
+          basero_timelock_operational == 0 or
+          basero_voting_escrow_operational == 0
+        for: 5m
+        labels:
+          severity: high
+          team: protocol
+        annotations:
+          summary: "A Basero component is not operational"
+          description: "One or more core components have failed health checks"
+          
+      # Share price anomaly
+      - alert: BaseroSharePriceAnomaly
+        expr: |
+          abs(
+            (basero_vault_share_price - avg_over_time(basero_vault_share_price[1h])) 
+            / avg_over_time(basero_vault_share_price[1h])
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: high
+          team: protocol
+          component: vault
+        annotations:
+          summary: "Vault share price showing unusual deviation"
+          description: "Share price deviated >10% from 1-hour average"
+          action: "Investigate recent deposits, withdrawals, or rebase events"
+
+  # ============================================
+  # MEDIUM SEVERITY ALERTS
+  # ============================================
+  - name: basero_medium
+    interval: 120s
+    rules:
+      # Vault moderate utilization
+      - alert: BaseroVaultModerateUtilization
+        expr: basero_vault_utilization_bps > 8000
+        for: 30m
+        labels:
+          severity: medium
+          team: protocol
+          component: vault
+        annotations:
+          summary: "Vault utilization above 80%"
+          description: "Current utilization: {{ $value | humanize }}%"
+          
+      # Governance quorum risk
+      - alert: BaseroGovernanceQuorumRisk
+        expr: basero_governance_voting_power < 1e21
+        for: 1h
+        labels:
+          severity: medium
+          team: governance
+          component: governance
+        annotations:
+          summary: "Low governance voting power"
+          description: "Total voting power may be insufficient for quorum"
+          action: "Consider community engagement initiatives"
+          
+      # Low voting escrow participation
+      - alert: BaseroLowVotingEscrowParticipation
+        expr: |
+          (basero_voting_escrow_total_locked / basero_token_total_supply) < 0.01
+        for: 24h
+        labels:
+          severity: medium
+          team: governance
+          component: voting_escrow
+        annotations:
+          summary: "Low voting escrow participation"
+          description: "Less than 1% of tokens are locked for voting"
+          
+      # Rebase approaching due time
+      - alert: BaseroRebaseApproachingDue
+        expr: basero_token_time_since_rebase > 82800
+        for: 10m
+        labels:
+          severity: medium
+          team: protocol
+          component: token
+        annotations:
+          summary: "Token rebase approaching 24-hour mark"
+          description: "Time since last rebase: {{ $value | humanizeDuration }}"
+
+  # ============================================
+  # WARNING ALERTS
+  # ============================================
+  - name: basero_warning
+    interval: 300s
+    rules:
+      # Component paused
+      - alert: BaseroComponentPaused
+        expr: basero_vault_is_paused == 1 or basero_bridge_is_paused == 1
+        for: 5m
+        labels:
+          severity: warning
+          team: protocol
+        annotations:
+          summary: "A Basero component is paused"
+          description: "Check if this is intentional (maintenance/upgrade)"
+          
+      # High number of alerts
+      - alert: BaseroHighAlertCount
+        expr: basero_active_alerts > 3
+        for: 10m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "High number of active alerts"
+          description: "Active alerts: {{ $value }}"
+          action: "Review alert conditions and system health"
+          
+      # Pending bridge messages
+      - alert: BaserobridgePendingMessages
+        expr: basero_bridge_pending_messages > 10
+        for: 30m
+        labels:
+          severity: warning
+          team: protocol
+          component: bridge
+        annotations:
+          summary: "Many pending bridge messages"
+          description: "Pending messages: {{ $value }}"
+          action: "Check message processing and cross-chain delays"
+
+  # ============================================
+  # SLO ALERTS
+  # ============================================
+  - name: basero_slo
+    interval: 300s
+    rules:
+      # 99.9% uptime SLO (30-day)
+      - alert: BaseroSLOBurnRate
+        expr: |
+          (
+            1 - avg_over_time(basero_system_operational[30d])
+          ) > 0.001
+        for: 1h
+        labels:
+          severity: high
+          team: sre
+          type: slo
+        annotations:
+          summary: "Basero 30-day uptime below 99.9% SLO"
+          description: "Current 30-day uptime: {{ $value | humanizePercentage }}"
+          action: "Review incidents and improve system reliability"
+          
+      # Fast burn rate (error budget exhaustion)
+      - alert: BaseroSLOFastBurn
+        expr: |
+          (
+            1 - avg_over_time(basero_system_operational[1h])
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          team: sre
+          type: slo
+        annotations:
+          summary: "Basero error budget burning too fast"
+          description: "1-hour uptime: {{ $value | humanizePercentage }} (target: 99%+)"
+          action: "Immediate investigation required to prevent SLO violation"
+
+  # ============================================
+  # PERFORMANCE ALERTS
+  # ============================================
+  - name: basero_performance
+    interval: 120s
+    rules:
+      # Metrics collection failing
+      - alert: BaseroMetricsCollectionFailing
+        expr: up{job="basero-protocol"} == 0
+        for: 5m
+        labels:
+          severity: high
+          team: sre
+        annotations:
+          summary: "Basero metrics exporter is down"
+          description: "Cannot collect protocol metrics"
+          action: "Check exporter service and RPC connectivity"
+          
+      # High scrape duration
+      - alert: BaseroHighScrapeDuration
+        expr: scrape_duration_seconds{job="basero-protocol"} > 10
+        for: 10m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "Metrics scraping is slow"
+          description: "Scrape duration: {{ $value }}s (threshold: 10s)"
+          action: "Check RPC performance and network connectivity"
