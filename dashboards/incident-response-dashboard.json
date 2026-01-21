@@ -1,0 +1,515 @@
+{
+  "dashboard": {
+    "title": "Basero Emergency Response Dashboard",
+    "description": "Real-time incident response monitoring and control panel",
+    "version": "1.0",
+    "timezone": "utc",
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "🚨 INCIDENT STATUS",
+        "type": "stat",
+        "gridPos": {
+          "h": 3,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "basero_incident_active",
+            "legendFormat": "Active Incidents"
+          }
+        ],
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            {
+              "color": "green",
+              "value": 0
+            },
+            {
+              "color": "red",
+              "value": 1
+            }
+          ]
+        }
+      },
+      {
+        "id": 2,
+        "title": "🔴 SEVERITY INDICATOR",
+        "type": "stat",
+        "gridPos": {
+          "h": 3,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "basero_incident_severity",
+            "legendFormat": "Max Severity"
+          }
+        ],
+        "mappings": [
+          {
+            "type": "value",
+            "options": {
+              "0": {
+                "text": "NONE",
+                "color": "green"
+              },
+              "1": {
+                "text": "CRITICAL (P0)",
+                "color": "red"
+              },
+              "2": {
+                "text": "HIGH (P1)",
+                "color": "orange"
+              },
+              "3": {
+                "text": "MEDIUM (P2)",
+                "color": "yellow"
+              },
+              "4": {
+                "text": "LOW (P3)",
+                "color": "blue"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "⏱️ TIME SINCE INCIDENT",
+        "type": "stat",
+        "gridPos": {
+          "h": 3,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "time() - basero_incident_start_time",
+            "legendFormat": "Duration (seconds)"
+          }
+        ],
+        "unit": "s"
+      },
+      {
+        "id": 4,
+        "title": "👥 RESPONDERS ASSIGNED",
+        "type": "stat",
+        "gridPos": {
+          "h": 3,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "basero_responders_count",
+            "legendFormat": "Active Responders"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "🔒 PAUSE STATES",
+        "type": "table",
+        "gridPos": {
+          "h": 4,
+          "w": 12,
+          "x": 0,
+          "y": 3
+        },
+        "targets": [
+          {
+            "expr": "basero_system_paused",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true
+              },
+              "indexByName": {
+                "system": 0,
+                "paused": 1,
+                "reason": 2,
+                "timestamp": 3
+              }
+            }
+          }
+        ],
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "paused"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "value",
+                  "fixedColor": "dark-red",
+                  "seriesOverrides": [
+                    {
+                      "criteria": "< 1",
+                      "color": "dark-green"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "📋 MULTI-SIG QUEUE",
+        "type": "table",
+        "gridPos": {
+          "h": 4,
+          "w": 12,
+          "x": 12,
+          "y": 3
+        },
+        "targets": [
+          {
+            "expr": "basero_multisig_proposals",
+            "format": "table",
+            "instant": true
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "💰 VAULT STATUS",
+        "type": "stat",
+        "gridPos": {
+          "h": 3,
+          "w": 6,
+          "x": 0,
+          "y": 7
+        },
+        "targets": [
+          {
+            "expr": "basero_vault_total_assets / 1e18",
+            "legendFormat": "TVL (ETH)"
+          }
+        ],
+        "unit": "eth"
+      },
+      {
+        "id": 8,
+        "title": "🌉 BRIDGE QUEUE",
+        "type": "stat",
+        "gridPos": {
+          "h": 3,
+          "w": 6,
+          "x": 6,
+          "y": 7
+        },
+        "targets": [
+          {
+            "expr": "basero_bridge_queued_messages",
+            "legendFormat": "Queued Messages"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "🗳️ GOVERNANCE STATE",
+        "type": "stat",
+        "gridPos": {
+          "h": 3,
+          "w": 6,
+          "x": 12,
+          "y": 7
+        },
+        "targets": [
+          {
+            "expr": "basero_governor_active_proposals",
+            "legendFormat": "Active Proposals"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "📊 RECOVERY PROGRESS",
+        "type": "gauge",
+        "gridPos": {
+          "h": 3,
+          "w": 6,
+          "x": 18,
+          "y": 7
+        },
+        "targets": [
+          {
+            "expr": "basero_recovery_progress_percent",
+            "legendFormat": "Progress %"
+          }
+        ],
+        "min": 0,
+        "max": 100,
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            {
+              "color": "red",
+              "value": 0
+            },
+            {
+              "color": "orange",
+              "value": 30
+            },
+            {
+              "color": "yellow",
+              "value": 70
+            },
+            {
+              "color": "green",
+              "value": 100
+            }
+          ]
+        }
+      },
+      {
+        "id": 11,
+        "title": "📈 TVL TREND (24H)",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 4,
+          "w": 12,
+          "x": 0,
+          "y": 10
+        },
+        "targets": [
+          {
+            "expr": "basero_vault_total_assets / 1e18",
+            "legendFormat": "TVL (ETH)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "lineInterpolation": "linear"
+            }
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "🎯 INCIDENT TIMELINE",
+        "type": "table",
+        "gridPos": {
+          "h": 4,
+          "w": 12,
+          "x": 12,
+          "y": 10
+        },
+        "targets": [
+          {
+            "expr": "basero_incident_events",
+            "format": "table",
+            "instant": true
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "🚀 QUICK ACTIONS",
+        "type": "stat",
+        "gridPos": {
+          "h": 3,
+          "w": 24,
+          "x": 0,
+          "y": 14
+        },
+        "targets": []
+      },
+      {
+        "id": 14,
+        "title": "⚠️ ALERT RULES STATUS",
+        "type": "table",
+        "gridPos": {
+          "h": 4,
+          "w": 12,
+          "x": 0,
+          "y": 17
+        },
+        "targets": [
+          {
+            "expr": "ALERTS",
+            "format": "table",
+            "instant": true
+          }
+        ]
+      },
+      {
+        "id": 15,
+        "title": "📝 INCIDENT LOG",
+        "type": "logs",
+        "gridPos": {
+          "h": 5,
+          "w": 12,
+          "x": 12,
+          "y": 17
+        },
+        "targets": [
+          {
+            "expr": "{job=\"basero-incident-log\"}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 16,
+        "title": "🔐 MULTI-SIG SIGNERS",
+        "type": "table",
+        "gridPos": {
+          "h": 3,
+          "w": 24,
+          "x": 0,
+          "y": 21
+        },
+        "targets": [
+          {
+            "expr": "basero_multisig_signers",
+            "format": "table",
+            "instant": true
+          }
+        ]
+      }
+    ],
+    "alerts": [
+      {
+        "uid": "vault-drain-alert",
+        "title": "Vault TVL Drain",
+        "condition": "basero_vault_tvl_drop_percent > 50",
+        "evaluateFor": "1m",
+        "noDataState": "NoData",
+        "execErrState": "Alerting",
+        "forDuration": "1m",
+        "annotations": {
+          "description": "Vault TVL dropped > 50% in 1 hour",
+          "runbook_url": "https://docs.basero.protocol/playbooks/vault-drain"
+        },
+        "labels": {
+          "severity": "critical",
+          "category": "vault"
+        }
+      },
+      {
+        "uid": "bridge-stuck-alert",
+        "title": "Bridge Messages Stuck",
+        "condition": "basero_bridge_stuck_messages_count > 0",
+        "evaluateFor": "24h",
+        "annotations": {
+          "description": "Bridge messages stuck > 24 hours",
+          "runbook_url": "https://docs.basero.protocol/playbooks/bridge-stuck"
+        },
+        "labels": {
+          "severity": "critical",
+          "category": "bridge"
+        }
+      },
+      {
+        "uid": "governance-anomaly-alert",
+        "title": "Governance Voting Anomaly",
+        "condition": "basero_governor_voting_anomaly > 0",
+        "evaluateFor": "5m",
+        "annotations": {
+          "description": "Unusual voting pattern detected",
+          "runbook_url": "https://docs.basero.protocol/playbooks/governance-attack"
+        },
+        "labels": {
+          "severity": "high",
+          "category": "governance"
+        }
+      },
+      {
+        "uid": "oracle-failure-alert",
+        "title": "Oracle Feed Stale",
+        "condition": "basero_oracle_staleness > 3600",
+        "evaluateFor": "5m",
+        "annotations": {
+          "description": "Price feed stale > 1 hour",
+          "runbook_url": "https://docs.basero.protocol/playbooks/oracle-failure"
+        },
+        "labels": {
+          "severity": "high",
+          "category": "external"
+        }
+      },
+      {
+        "uid": "high-gas-alert",
+        "title": "High Gas Prices",
+        "condition": "basero_gas_price_gwei > 500",
+        "evaluateFor": "10m",
+        "annotations": {
+          "description": "Gas prices exceed threshold",
+          "runbook_url": "https://docs.basero.protocol/playbooks/high-gas"
+        },
+        "labels": {
+          "severity": "medium",
+          "category": "external"
+        }
+      }
+    ],
+    "notificationChannels": [
+      {
+        "name": "P0 Alert",
+        "type": "slack",
+        "isDefault": true,
+        "settings": {
+          "url": "${SLACK_WEBHOOK_P0}",
+          "channel": "#incident-critical"
+        }
+      },
+      {
+        "name": "P1 Alert",
+        "type": "slack",
+        "settings": {
+          "url": "${SLACK_WEBHOOK_P1}",
+          "channel": "#incident-high"
+        }
+      },
+      {
+        "name": "On-Call Page",
+        "type": "pagerduty",
+        "settings": {
+          "integrationKey": "${PAGERDUTY_KEY}"
+        }
+      },
+      {
+        "name": "Email",
+        "type": "email",
+        "settings": {
+          "addresses": [
+            "engineering@basero.protocol",
+            "ops@basero.protocol"
+          ]
+        }
+      }
+    ],
+    "metadata": {
+      "created": "2026-01-22T00:00:00Z",
+      "updated": "2026-01-22T00:00:00Z",
+      "version": "1.0",
+      "category": "incident-response",
+      "tags": ["emergency", "incident", "monitoring"]
+    }
+  }
+}
