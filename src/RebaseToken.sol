@@ -26,6 +26,9 @@ contract RebaseToken is ERC20, Ownable {
     // Total supply of tokens (can be rebased)
     uint256 private s_totalSupply;
 
+    // Reserved storage space to allow for future upgrades without shifting storage
+    uint256[50] private __gap;
+
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
