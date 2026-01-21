@@ -47,11 +47,15 @@ contract RebaseToken is ERC20, Ownable {
         s_totalShares = 0;
     }
 
+    /*//////////////////////////////////////////////////////////////
+                            REBASE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
     /**
      * @dev Returns the total supply of tokens
      */
     function totalSupply() public view override returns (uint256) {
-        return _totalSupply;
+        return s_totalSupply;
     }
 
     /**
@@ -59,8 +63,8 @@ contract RebaseToken is ERC20, Ownable {
      * @param account The address to query
      */
     function balanceOf(address account) public view override returns (uint256) {
-        if (_totalShares == 0) return 0;
-        return (_shares[account] * _totalSupply) / _totalShares;
+        if (s_totalShares == 0) return 0;
+        return (s_shares[account] * s_totalSupply) / s_totalShares;
     }
 
     /**
@@ -68,14 +72,22 @@ contract RebaseToken is ERC20, Ownable {
      * @param account The address to query
      */
     function sharesOf(address account) public view returns (uint256) {
-        return _shares[account];
+        return s_shares[account];
     }
 
     /**
      * @dev Returns the total shares
      */
     function getTotalShares() public view returns (uint256) {
-        return _totalShares;
+        return s_totalShares;
+    }
+
+    /**
+     * @dev Returns the interest rate for a user
+     * @param account The address to query
+     */
+    function getInterestRate(address account) public view returns (uint256) {
+        return s_userInterestRate[account];
     }
 
     /**
@@ -83,8 +95,8 @@ contract RebaseToken is ERC20, Ownable {
      * @param tokenAmount Amount of tokens
      */
     function getSharesByTokenAmount(uint256 tokenAmount) public view returns (uint256) {
-        if (_totalSupply == 0) return 0;
-        return (tokenAmount * _totalShares) / _totalSupply;
+        if (s_totalSupply == 0) return tokenAmount;
+        return (tokenAmount * s_totalShares) / s_totalSupply;
     }
 
     /**
@@ -92,9 +104,13 @@ contract RebaseToken is ERC20, Ownable {
      * @param sharesAmount Amount of shares
      */
     function getTokenAmountByShares(uint256 sharesAmount) public view returns (uint256) {
-        if (_totalShares == 0) return 0;
-        return (sharesAmount * _totalSupply) / _totalShares;
+        if (s_totalShares == 0) return 0;
+        return (sharesAmount * s_totalSupply) / s_totalShares;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                           TRANSFER FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /**
      * @dev Transfer tokens by transferring shares
@@ -133,10 +149,10 @@ contract RebaseToken is ERC20, Ownable {
     function _transferShares(address from, address to, uint256 sharesAmount) internal {
         require(from != address(0), "Transfer from zero address");
         require(to != address(0), "Transfer to zero address");
-        require(_shares[from] >= sharesAmount, "Transfer amount exceeds balance");
+        require(s_shares[from] >= sharesAmount, "Transfer amount exceeds balance");
 
-        _shares[from] -= sharesAmount;
-        _shares[to] += sharesAmount;
+        s_shares[from] -= sharesAmount;
+        s_shares[to] += sharesAmount;
 
         emit SharesTransferred(from, to, sharesAmount);
     }
