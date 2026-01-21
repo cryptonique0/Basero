@@ -1,0 +1,49 @@
+# Halmos Configuration for Basero Protocol
+
+[profile.default]
+# Solver settings
+solver = "z3"
+solver_timeout = 0
+solver_max_memory = 4000
+
+# Search depth
+max_iterations = 10
+loop_bound = 10
+call_depth_limit = 10
+create_depth_limit = 5
+
+# Memory
+memory_size = 2097152  # 2^20
+
+# Logging
+verbose = 1
+output_dir = "halmos-reports"
+color = true
+
+# Symbolic execution settings
+early_return = false
+ignore_cheatcodes = []
+
+[profile.intensive]
+# More thorough verification
+max_iterations = 100
+loop_bound = 100
+call_depth_limit = 20
+create_depth_limit = 10
+solver_timeout = 300
+
+[profile.ci]
+# Fast verification for CI
+max_iterations = 5
+loop_bound = 5
+call_depth_limit = 5
+create_depth_limit = 3
+
+[profile.production]
+# Maximum thoroughness (pre-audit)
+max_iterations = 1000
+loop_bound = 1000
+call_depth_limit = 32
+create_depth_limit = 16
+solver_timeout = 600
+solver_max_memory = 8000
