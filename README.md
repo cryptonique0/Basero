@@ -232,129 +232,29 @@ cast call <vault-contract-address> "getUserInterestRate(address)" <your-address>
     --rpc-url $SEPOLIA_RPC_URL
 ```
 
-## 🧪 Testing
+## ⛽ Estimate Gas
 
-The project includes comprehensive tests:
-
-### RebaseToken Tests
-- Initial state verification
-- Token transfers and approvals
-- Rebase mechanics (absolute and percentage)
-- Mint and burn operations
-- Shares conversion
-- Access control
-- Fuzz testing
-
-### CCIP Tests
-- Sender/receiver configuration
-- Allowlisting chains and contracts
-- LINK withdrawal
-- Access control
-- Router interactions
-
-Run coverage report:
-```bash
-forge coverage
-```
-
-## 🌐 Deployment
-
-### Deploy to Testnet
-
-1. **Deploy on Sepolia (Source Chain)**:
-```bash
-forge script script/DeployCrossChainRebaseToken.s.sol \
-    --rpc-url $SEPOLIA_RPC_URL \
-    --private-key $PRIVATE_KEY \
-    --broadcast \
-    --verify
-```
-
-2. **Deploy on Arbitrum Sepolia (Destination Chain)**:
-```bash
-forge script script/DeployCrossChainRebaseToken.s.sol \
-    --rpc-url $ARBITRUM_SEPOLIA_RPC_URL \
-    --private-key $PRIVATE_KEY \
-    --broadcast \
-    --verify
-```
-
-3. **Save deployed addresses** in your `.env`:
-```env
-SENDER_ADDRESS=0x...
-RECEIVER_ADDRESS=0x...
-```
-
-## 🔗 Cross-Chain Configuration
-
-After deploying to both chains, configure the cross-chain connections:
+Generate gas usage snapshots:
 
 ```bash
-forge script script/ConfigureCCIP.s.sol \
-    --rpc-url $SEPOLIA_RPC_URL \
-    --private-key $PRIVATE_KEY \
-    --broadcast
+forge snapshot
 ```
 
-This script:
-1. Allowlists the destination chain on the sender
-2. Allowlists the receiver contract
-3. Allowlists the source chain on the receiver
-4. Allowlists the sender contract
+You'll see an output file called `.gas-snapshot` with gas usage for all functions.
 
-### Fund CCIP Contracts
+## 🎨 Formatting
 
-Transfer LINK tokens to the sender contract for cross-chain fees:
+Format Solidity code:
+
 ```bash
-# Transfer LINK to sender contract
-cast send $SEPOLIA_LINK \
-    "transfer(address,uint256)" \
-    $SENDER_ADDRESS \
-    1000000000000000000 \
-    --rpc-url $SEPOLIA_RPC_URL \
-    --private-key $PRIVATE_KEY
+forge fmt
 ```
 
-## ⛽ Gas Optimization
+## 🙏 Thank You!
 
-The rebase mechanism uses a shares-based system for gas efficiency:
-- Rebasing only updates a single storage variable (`_totalSupply`)
-- No iteration over holder addresses required
-- Transfers operate on shares, not balances
-- Minimal gas cost for rebase operations
-
-## 🔒 Security Considerations
-
-1. **Access Control**: Only owner can rebase, mint, or burn tokens
-2. **Allowlisting**: Both chains and contracts must be allowlisted for cross-chain transfers
-3. **Validation**: All cross-chain messages are validated before execution
-4. **Reentrancy**: Uses OpenZeppelin's battle-tested implementations
-5. **Integer Overflow**: Solidity 0.8.24 has built-in overflow protection
-
-### Best Practices
-
-- Always test on testnets before mainnet deployment
-- Audit your contracts before production use
-- Use multi-sig wallets for ownership
-- Monitor cross-chain transactions
-- Keep LINK funded for CCIP operations
-
-## 🤝 Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Development Guidelines
-
-- Write tests for all new features
-- Follow the existing code style
-- Update documentation as needed
-- Ensure all tests pass before submitting PR
+Thanks for checking out this project! For more Solidity education, check out:
+- [Cyfrin Updraft](https://updraft.cyfrin.io/)
+- [Patrick Collins YouTube](https://www.youtube.com/c/PatrickCollins)
 
 ## 📚 Additional Resources
 
@@ -366,21 +266,3 @@ Contributions are welcome! Please follow these steps:
 ## 📄 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- [Foundry](https://github.com/foundry-rs/foundry) for the amazing development framework
-- [OpenZeppelin](https://github.com/OpenZeppelin/openzeppelin-contracts) for secure contract implementations
-- [Chainlink](https://github.com/smartcontractkit/chainlink) for CCIP infrastructure
-- [Cyfrin](https://www.cyfrin.io/) for educational resources
-
-## 📞 Support
-
-For questions and support:
-- Open an issue on GitHub
-- Check existing documentation
-- Review test files for usage examples
-
----
-
-**Built with ❤️ using Foundry, OpenZeppelin, and Chainlink CCIP**
