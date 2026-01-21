@@ -1,0 +1,231 @@
+{
+  "dashboard": {
+    "title": "Basero Protocol - Alerts & SLOs",
+    "tags": ["basero", "alerts", "slo"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "1m",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Critical Alerts",
+        "type": "alertlist",
+        "gridPos": {
+          "h": 10,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "options": {
+          "showOptions": "current",
+          "maxItems": 20,
+          "sortOrder": 1,
+          "dashboardAlerts": false,
+          "alertName": "",
+          "dashboardTitle": "",
+          "tags": ["basero", "critical"],
+          "stateFilter": {
+            "firing": true,
+            "pending": true
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Warning Alerts",
+        "type": "alertlist",
+        "gridPos": {
+          "h": 10,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "options": {
+          "showOptions": "current",
+          "maxItems": 20,
+          "sortOrder": 1,
+          "tags": ["basero", "warning"]
+        }
+      },
+      {
+        "id": 3,
+        "title": "System Uptime (24h)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "avg_over_time(basero_system_operational[24h]) * 100",
+            "legendFormat": "Uptime %"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 10
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "red"
+                },
+                {
+                  "value": 99,
+                  "color": "yellow"
+                },
+                {
+                  "value": 99.9,
+                  "color": "green"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "System Uptime (7d)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "avg_over_time(basero_system_operational[7d]) * 100",
+            "legendFormat": "Uptime %"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 10
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 99.9,
+                  "color": "green"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Alert Response Time (24h avg)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "avg_over_time(basero_alert_response_time[24h])",
+            "legendFormat": "Avg Response (min)"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 10
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "m",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "green"
+                },
+                {
+                  "value": 15,
+                  "color": "yellow"
+                },
+                {
+                  "value": 60,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Incidents (30d)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(increase(basero_incidents_total[30d]))",
+            "legendFormat": "Total Incidents"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 10
+        }
+      },
+      {
+        "id": 7,
+        "title": "Uptime History (30 days)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "avg_over_time(basero_system_operational[1h]) * 100",
+            "legendFormat": "System Uptime %"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 14
+        },
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "Uptime",
+            "max": 100,
+            "min": 95
+          }
+        ]
+      }
+    ],
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": [
+        {
+          "datasource": "Prometheus",
+          "enable": true,
+          "expr": "basero_deployment",
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Deployments",
+          "tagKeys": "version"
+        },
+        {
+          "datasource": "Prometheus",
+          "enable": true,
+          "expr": "basero_incident",
+          "iconColor": "rgba(255, 96, 96, 1)",
+          "name": "Incidents",
+          "tagKeys": "severity"
+        }
+      ]
+    }
+  }
+}
