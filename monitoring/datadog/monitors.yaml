@@ -1,0 +1,211 @@
+# Datadog Monitors Configuration
+
+monitors:
+  # Critical: System not operational
+  - name: "Basero System Down"
+    type: metric alert
+    query: "avg(last_5m):avg:basero.system.operational{*} < 1"
+    message: |
+      **CRITICAL: Basero system is not operational!**
+      
+      One or more core components are failing.
+      
+      Check component status:
+      - Token: {{basero.token.operational}}
+      - Vault: {{basero.vault.operational}}
+      - Bridge: {{basero.bridge.operational}}
+      - Governance: {{basero.governance.operational}}
+      
+      @pagerduty-basero-critical
+      @slack-basero-alerts
+    tags:
+      - service:basero
+      - severity:critical
+      - team:protocol
+    priority: 1
+    notify_no_data: true
+    no_data_timeframe: 10
+    
+  # Critical: Vault utilization too high
+  - name: "Basero Vault High Utilization"
+    type: metric alert
+    query: "avg(last_15m):avg:basero.vault.utilization_bps{*} > 9500"
+    message: |
+      **WARNING: Vault utilization above 95%**
+      
+      Current utilization: {{value}}%
+      
+      Action required:
+      - Monitor for deposit capacity
+      - Consider increasing max deposits
+      - Prepare communications
+      
+      @slack-basero-alerts
+    tags:
+      - service:basero
+      - severity:high
+      - component:vault
+    priority: 2
+    
+  # Critical: Rebase overdue
+  - name: "Basero Rebase Overdue"
+    type: metric alert
+    query: "avg(last_5m):avg:basero.token.time_since_rebase{*} > 90000"
+    message: |
+      **CRITICAL: Rebase is overdue!**
+      
+      Time since last rebase: {{value}} seconds ({{value/3600}} hours)
+      Expected interval: 24 hours
+      
+      Action required:
+      - Check rebase keeper bot status
+      - Manually trigger rebase if necessary
+      - Investigate automation failure
+      
+      @pagerduty-basero-critical
+      @slack-basero-alerts
+    tags:
+      - service:basero
+      - severity:critical
+      - component:token
+    priority: 1
+    notify_no_data: true
+    
+  # High: Bridge messages failing
+  - name: "Basero Bridge Failed Messages"
+    type: metric alert
+    query: "avg(last_30m):avg:basero.bridge.failed_messages{*} > 5"
+    message: |
+      **WARNING: Multiple bridge messages failing**
+      
+      Failed messages in last 30min: {{value}}
+      
+      Check:
+      - Cross-chain connectivity
+      - Gas prices and limits
+      - Message validity
+      
+      @slack-basero-alerts
+    tags:
+      - service:basero
+      - severity:high
+      - component:bridge
+    priority: 2
+    
+  # Medium: Share price anomaly
+  - name: "Basero Vault Share Price Anomaly"
+    type: metric alert
+    query: "avg(last_1h):anomalies(avg:basero.vault.share_price{*}, 'agile', 3) >= 1"
+    message: |
+      **WARNING: Vault share price showing unusual behavior**
+      
+      Current price: {{value}}
+      
+      Investigate:
+      - Recent large deposits/withdrawals
+      - Rebase events
+      - Oracle price updates
+      
+      @slack-basero-alerts
+    tags:
+      - service:basero
+      - severity:medium
+      - component:vault
+    priority: 3
+    
+  # Medium: Governance quorum risk
+  - name: "Basero Governance Quorum Risk"
+    type: metric alert
+    query: "avg(last_1h):avg:basero.governance.voting_power{*} < avg:basero.governance.quorum{*} * 1.5"
+    message: |
+      **WARNING: Governance quorum at risk**
+      
+      Total voting power is approaching minimum quorum threshold.
+      
+      Monitor active proposals and consider:
+      - Community engagement
+      - Voting power delegation
+      - Quorum parameter adjustment
+      
+      @slack-basero-governance
+    tags:
+      - service:basero
+      - severity:medium
+      - component:governance
+    priority: 3
+    
+  # Low: Vault paused
+  - name: "Basero Vault Paused"
+    type: metric alert
+    query: "avg(last_5m):avg:basero.vault.is_paused{*} >= 1"
+    message: |
+      **INFO: Vault is paused**
+      
+      The vault has been paused. This may be intentional during:
+      - Emergency response
+      - Planned maintenance
+      - Contract upgrades
+      
+      If unplanned, investigate immediately.
+      
+      @slack-basero-alerts
+    tags:
+      - service:basero
+      - severity:low
+      - component:vault
+    priority: 4
+    
+  # Low: Bridge paused
+  - name: "Basero Bridge Paused"
+    type: metric alert
+    query: "avg(last_5m):avg:basero.bridge.is_paused{*} >= 1"
+    message: |
+      **INFO: Bridge is paused**
+      
+      Cross-chain messaging has been paused.
+      
+      @slack-basero-alerts
+    tags:
+      - service:basero
+      - severity:low
+      - component:bridge
+    priority: 4
+    
+  # Composite: Multiple components degraded
+  - name: "Basero Multiple Components Degraded"
+    type: metric alert
+    query: "avg(last_10m):avg:basero.components.operational{*} < 5"
+    message: |
+      **CRITICAL: Multiple system components degraded**
+      
+      Operational components: {{value}} / 6
+      
+      This indicates a systemic issue. Immediate investigation required.
+      
+      @pagerduty-basero-critical
+      @slack-basero-alerts
+    tags:
+      - service:basero
+      - severity:critical
+      - team:protocol
+    priority: 1
+    
+  # SLO: 99.9% uptime
+  - name: "Basero SLO Burn Rate"
+    type: slo alert
+    query: "error_budget(\"basero_system_uptime\").over(\"7d\").as_rate() > 0.1"
+    message: |
+      **WARNING: SLO error budget burning too fast**
+      
+      Current 7-day uptime: {{value}}%
+      Target: 99.9%
+      
+      Error budget consumption exceeds acceptable rate.
+      Review incidents and improve reliability.
+      
+      @slack-basero-sre
+    tags:
+      - service:basero
+      - severity:high
+      - type:slo
+    priority: 2
