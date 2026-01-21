@@ -84,11 +84,11 @@ contract CCIPRebaseTokenReceiver is CCIPReceiver, Ownable {
             revert SenderNotAllowlisted(sender);
         }
 
-        // Decode message data
-        (address recipient, uint256 amount) = abi.decode(any2EvmMessage.data, (address, uint256));
+        // Decode message data including interest rate
+        (address recipient, uint256 amount, uint256 interestRate) = abi.decode(any2EvmMessage.data, (address, uint256, uint256));
 
-        // Mint tokens to recipient
-        rebaseToken.mint(recipient, amount);
+        // Mint tokens to recipient with their bridged interest rate
+        rebaseToken.mint(recipient, amount, interestRate);
 
         emit MessageReceived(
             any2EvmMessage.messageId,
