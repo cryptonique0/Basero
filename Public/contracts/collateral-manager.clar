@@ -195,6 +195,70 @@
 
 ;; Private Functions
 
+;; Liquidation: Anyone can liquidate unhealthy positions
+(define-public (liquidate-collateral (user principal) (asset principal))
+  (let (
+    (collateral-type (unwrap! (map-get? collateral-types asset) ERR-INVALID-COLLATERAL))
+    (current-collateral (unwrap! (map-get? user-collateral {user: user, asset: asset}) ERR-INSUFFICIENT-COLLATERAL))
+    (borrowed (get borrowed-against current-collateral))
+    (amount (get amount current-collateral))
+    (collateral-value (/ (* amount (get price-per-unit collateral-type)) u1000000))
+    (liquidation-value (/ (* collateral-value (get liquidation-threshold collateral-type)) u10000))
+    (health-factor (if (is-eq borrowed u0) u10000 (/ (* liquidation-value u10000) borrowed)))
+  )
+    ;; Only allow liquidation if health factor is below threshold
+    (asserts! (< health-factor u10000) ERR-NOT-LIQUIDATABLE)
+
+    ;; Calculate amount to seize (up to borrowed value, capped by collateral)
+    (let (
+      (seize-amount (min amount (/ borrowed (get price-per-unit collateral-type))))
+      (seize-value (/ (* seize-amount (get price-per-unit collateral-type)) u1000000))
+    )
+      ;; Transfer seized collateral to liquidator
+      (try! (stx-transfer? seize-amount CONTRACT-OWNER tx-sender))
+
+      ;; Update user collateral
+      (let (
+        (remaining-amount (- amount seize-amount))
+      )
+        (if (is-eq remaining-amount u0)
+          (map-delete user-collateral {user: user, asset: asset})
+          (map-set user-collateral {user: user, asset: asset}
+            (merge current-collateral {
+              amount: remaining-amount,
+              borrowed-against: u0
+            })
+          )
+        )
+      )
+
+      ;; Update collateral type totals
+      (map-set collateral-types asset
+        (merge collateral-type {
+          total-deposited: (- (get total-deposited collateral-type) seize-amount)
+        }))
+
+      ;; Update user total collateral
+      (update-user-collateral-value user seize-value false)
+
+      ;; Update global total
+      (var-set total-collateral-value (- (var-get total-collateral-value) seize-value))
+
+      (print {
+        event: "collateral-liquidated",
+        liquidator: tx-sender,
+        user: user,
+        asset: asset,
+        seized-amount: seize-amount,
+        seized-value-usd: seize-value,
+        timestamp: stacks-block-time
+      })
+
+      (ok seize-amount)
+    )
+  )
+)
+
 (define-private (update-user-collateral-value (user principal) (value uint) (is-deposit bool))
   (let (
     (current-totals (default-to
