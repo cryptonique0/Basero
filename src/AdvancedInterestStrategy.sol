@@ -633,11 +633,24 @@ contract AdvancedInterestStrategy is Ownable {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Calculate composite interest rate for a user
-     * @dev Combines: utilization rate + tier bonus + lock bonus
-     * @param userDeposit User's deposit amount
-     * @param utilizationBps Current vault utilization
+     * @notice Calculate composite interest rate for user without lock bonus
+     * @dev Combines: base utilization rate + tier bonus (ignores lock status)
+     * @param userDeposit User's deposit amount (in wei)
+     * @param utilizationBps Current vault utilization in basis points (0-10000)
      * @return Total rate in basis points
+     *
+     * COMPONENTS:
+     * 1. baseRate: Utilization-based rate from calculateUtilizationRate()
+     * 2. tierBonus: Tier reward from getTierBonus(userDeposit)
+     * 3. lockBonus: Intentionally set to 0 (use calculateUserRateWithLock for lock rewards)
+     *
+     * FORMULA:
+     * totalRate = baseRate(utilizationBps) + tierBonus(userDeposit) + 0
+     *
+     * USE CASES:
+     * 1. Display base rate to users (before locking)
+     * 2. Calculate rates for unlocked deposits
+     * 3. Frontend: Show upgrade messaging with lock incentive
      */
     function calculateUserRate(uint256 userDeposit, uint256 utilizationBps) external view returns (uint256) {
         // Base rate from utilization
@@ -653,17 +666,17 @@ contract AdvancedInterestStrategy is Ownable {
     }
 
     /**
-     * @notice Calculate composite rate with lock bonus
-     * @param user User address (to check lock status)
-     * @param userDeposit User's deposit amount
-     * @param utilizationBps Current vault utilization
-     * @return Total rate in basis points
-     */
-    function calculateUserRateWithLock(address user, uint256 userDeposit, uint256 utilizationBps)
-        external
-        view
-        returns (uint256)
-    {
+     * @notice Calculate complete composite rate including lock bonus
+     * @dev Combines: base utilization rate + tier bonus + lock bonus (if active)
+     * @param user User address (to check lock status and duration)
+     * @param userDeposit User's deposit amount (in wei)
+     * @param utilizationBps Current vault utilization in basis points (0-10000)
+     * @return Total rate in basis points including all bonuses
+     *
+     * COMPONENTS:
+     * 1. baseRate: Utilization-based rate from calculateUtilizationRate(utilizationBps)
+     * 2. tierBonus: Tier reward from getTierBonus(userDeposit)\n     * 3. lockBonus: Lock reward from getLockBonus(user) (0 if not locked or expired)\n     *
+     * FORMULA:\n     * totalRate = baseRate(utilizationBps) + tierBonus(userDeposit) + lockBonus(user)\n     *\n     * EXAMPLE:\n     * Alice: 10 ETH deposit, locked for 1 year, vault at 75% utilization\n     * - baseRate @75%: 7.5%\n     * - tierBonus @10 ETH: 1%\n     * - lockBonus @1 year: 2%\n     * - totalRate = 7.5% + 1% + 2% = 10.5%\n     *\n     * Bob: 10 ETH deposit, NOT locked, vault at 75% utilization\n     * - baseRate @75%: 7.5%\n     * - tierBonus @10 ETH: 1%\n     * - lockBonus: 0% (no active lock)\n     * - totalRate = 7.5% + 1% + 0% = 8.5%\n     *\n     * Difference: 2% bonus for locking\n     *\n     * USE CASES:\n     * 1. Display final rate to locked users\n     * 2. Calculate APY for frontend with lock information\n     * 3. Verify rate changes when lock expires\n     * 4. Compare locked vs unlocked rates\n     *\n     * GAS COST: ~8-9k gas (includes lock status check)\n     */\n    function calculateUserRateWithLock(address user, uint256 userDeposit, uint256 utilizationBps)\n        external\n        view\n        returns (uint256)\n    {
         // Base rate from utilization
         uint256 baseRate = calculateUtilizationRate(utilizationBps);
 
