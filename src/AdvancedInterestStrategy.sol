@@ -362,10 +362,55 @@ contract AdvancedInterestStrategy is Ownable {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Lock deposits for bonus rate
-     * @param amount Amount to lock
-     * @param duration Lock duration in seconds
-     * @param unlockBonus Bonus rate for locked amount (bps)
+     * @notice Lock user's deposits for bonus rate and extended commitment
+     * @dev Creates lock commitment with time-lock and bonus rewards
+     * @param user Address of user locking deposits
+     * @param amount Amount to lock (in wei)
+     * @param duration Lock duration in seconds (1 week to 4 years)
+     * @param unlockBonus Bonus rate for locked deposits (basis points, e.g., 200 = 2%)
+     *
+     * REQUIREMENTS:
+     * - Can only be called by owner (or by user via vault)
+     * - duration must be between 1 week (604800 seconds) and 4 years (126144000 seconds)
+     * - unlockBonus must not exceed 10000 basis points (100%)
+     * - Replaces any existing lock for user
+     *
+     * EFFECTS:
+     * - Sets UserLock.lockedAmount = amount
+     * - Sets UserLock.lockEndTime = block.timestamp + duration
+     * - Updates s_lockConfigs[user] with duration and bonus
+     * - Emits LockCreated event
+     *
+     * LOCK COMMITMENT:
+     * User commits to not withdraw locked amount until lockEndTime.
+     * In return, receives bonus rate on locked deposits.
+     *
+     * BONUS EXAMPLES:
+     * ```
+     * 1 month lock (2592000 sec): +0.5% bonus
+     * 3 month lock (7776000 sec): +1% bonus
+     * 6 month lock (15552000 sec): +1.5% bonus
+     * 1 year lock (31536000 sec): +2% bonus
+     * ```
+     *
+     * COMPOSITE RATE WITH LOCK:
+     * Alice locks 10 ETH for 1 year at 75% utilization
+     * - Base rate @75%: 7.5%
+     * - Tier bonus @10 ETH: 1%
+     * - Lock bonus @1 year: 2%
+     * - Total rate: 10.5% for locked period
+     *
+     * SECURITY:
+     * - Lock is user-specific (only one lock per address)
+     * - Cannot re-lock during existing lock (must unlock first)
+     * - lockEndTime is absolute, not relative to previous lock
+     * - No early unlock mechanism (must wait full duration)
+     *
+     * USE CASES:
+     * 1. Incentivize long-term deposits during protocol growth
+     * 2. Reduce short-term volatility by locking capital
+     * 3. Signal confidence to other users (locked = trustworthy)
+     * 4. Create APY tiers based on commitment (1 month = 8%, 1 year = 10%)
      */
     function lockDeposit(address user, uint256 amount, uint256 duration, uint256 unlockBonus) external onlyOwner {
         if (duration < 1 weeks || duration > 4 * 365 days) revert InvalidLockDuration();
@@ -470,12 +515,70 @@ contract AdvancedInterestStrategy is Ownable {
     }
 
     /**
-     * @notice Calculate performance fee on gains
-     * @param userBalance Current user balance
-     * @param originalDeposit Original deposit amount
-     * @param elapsedSeconds Time since last check
-     * @return excessReturns Returns above target
-     * @return performanceFee Fee on excess returns
+     * @notice Calculate performance fee on gains above target return
+     * @dev Implements "hurdle rate" mechanism: fee only on excess returns
+     * @param userBalance Current user balance (in tokens)
+     * @param originalDeposit Original deposit amount (in tokens)
+     * @param elapsedSeconds Time elapsed since last check (in seconds)
+     * @return excessReturns Gains above target annual return
+     * @return performanceFee Fee on excess returns (in tokens)
+     *
+     * RETURNS:
+     * - excessReturns: 0 if balance ≤ originalDeposit, else (balance - deposit - targetReturn)
+     * - performanceFee: 0 if no excess, else (excessReturns × performanceFeeBps / 10000)
+     *
+     * FORMULA:
+     * ```
+     * if userBalance <= originalDeposit:
+     *   return (0, 0)  // No gains yet
+     * 
+     * gains = userBalance - originalDeposit
+     * 
+     * targetReturnAmount = (originalDeposit × targetAnnualReturnBps × elapsedSeconds)
+     *                     / (365 days × 10000)
+     * 
+     * if gains > targetReturnAmount:
+     *   excessReturns = gains - targetReturnAmount
+     *   performanceFee = (excessReturns × performanceFeeBps) / 10000
+     * else:
+     *   excessReturns = 0
+     *   performanceFee = 0
+     * ```
+     *
+     * EXAMPLE:
+     * Alice deposits 100 tokens, target is 5% annual return, performance fee is 20% of excess
+     * After 1 year:
+     * - userBalance: 112 tokens
+     * - gains: 12 tokens
+     * - targetReturnAmount: 100 × 5% = 5 tokens
+     * - excessReturns: 12 - 5 = 7 tokens (above target)
+     * - performanceFee: 7 × 20% = 1.4 tokens
+     * Result: (7 tokens, 1.4 tokens)
+     *
+     * After 6 months:
+     * - userBalance: 108 tokens
+     * - gains: 8 tokens
+     * - targetReturnAmount: 100 × 5% × (6 months / 12 months) = 2.5 tokens
+     * - excessReturns: 8 - 2.5 = 5.5 tokens
+     * - performanceFee: 5.5 × 20% = 1.1 tokens
+     * Result: (5.5 tokens, 1.1 tokens)
+     *
+     * CONFIGURATION:
+     * - targetAnnualReturnBps: Hurdle rate (default 500 = 5%)
+     * - performanceFeeBps: Fee on excess (default 2000 = 20%)
+     * - s_performanceFeeRecipient: Who receives fees
+     *
+     * SECURITY:
+     * - Fee only on gains above target (aligned incentives)
+     * - Time-weighted calculation (annualized)
+     * - Returns 0 if not profitable
+     * - Owner-controlled fee rate
+     *
+     * USE CASES:
+     * 1. Align vault manager incentives with user returns
+     * 2. Charge for outperformance only
+     * 3. Standard practice in hedge funds and investment funds
+     * 4. Transparent fee calculation
      */
     function calculatePerformanceFee(uint256 userBalance, uint256 originalDeposit, uint256 elapsedSeconds)
         public
