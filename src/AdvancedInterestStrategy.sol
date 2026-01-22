@@ -7,13 +7,17 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title AdvancedInterestStrategy
- * @dev Advanced interest rate mechanics with dynamic rates, tiers, locking, and performance fees
- * @notice Provides:
- *   - Variable rates based on vault utilization
- *   - Tier-based rewards (higher deposits = higher rates)
- *   - Bonus accrual for locked deposits
- *   - Performance fees on excess returns
- */
+ * @author Basero Labs
+ * @notice Advanced interest rate mechanics with dynamic rates, tiers, locking, and performance fees
+ * @dev Implements composite interest rate model combining utilization curves, tier bonuses, and lock rewards
+ *
+ * ARCHITECTURE:\n * Composite Rate = Base Rate (utilization) + Tier Bonus + Lock Bonus - Performance Fee
+ *
+ * THREE RATE COMPONENTS:
+ *
+ * 1. UTILIZATION-BASED RATE (Primary)
+ *    Adjusts based on vault capital efficiency with piecewise linear curve
+ *    - Has a "kink" point where slope changes (e.g., 80% utilization)\n *    - Below kink: Gentler slope (increases from baseRate to rateAtKink)\n *    - Above kink: Steeper slope (increases from rateAtKink to rateAtMax)\n *    - Incentivizes balanced utilization\n *    Example curve: 2% @0% → 8% @80% → 12% @100%\n *\n * 2. TIER-BASED REWARDS (Secondary)\n *    Bonus rates for higher deposits (loyalty rewards)\n *    - Tier 1: 1 ETH+ → +0% base\n *    - Tier 2: 10 ETH+ → +1% bonus\n *    - Tier 3: 100 ETH+ → +3% bonus\n *    - Tier 4: 1000 ETH+ → +5% bonus\n *    Example: 10 ETH deposit + 8% base = 9% total rate\n *\n * 3. LOCK BONUSES (Tertiary)\n *    Additional rewards for locking deposits for extended period\n *    - 1 month lock: +0.5% bonus\n *    - 3 month lock: +1% bonus\n *    - 1 year lock: +2% bonus\n *    Example: 10 ETH locked 1 year = 8% base + 3% tier + 2% lock = 13% rate\n *\n * PERFORMANCE FEES (Reduction):\n * Charges a fee on excess returns above target annual return\n * - Target: 5% annual return\n * - Fee on excess: 20% of gains above target\n * - Example: User earns 8% but target is 5%\n *           Excess = 3%, Fee = 3% × 20% = 0.6%\n *           Net rate = 8% - 0.6% = 7.4%\n *\n * RATE CALCULATION FORMULA:\n * ```\n * totalRate = utilizationRate(vault.utilization) \n *           + tierBonus(userDeposit)\n *           + lockBonus(lockDuration)\n *           - performanceFee(userGains)\n * ```\n *\n * UTILIZATION CURVE FORMULA (Piecewise Linear):\n * ```\n * if util = 0:       rate = rateAtZero\n * if util >= 100%:   rate = rateAtMax\n * if util < kink:\n *   slope = (rateAtKink - rateAtZero) × 10000 / kink\n *   rate = rateAtZero + (util × slope / 10000)\n * if util >= kink:\n *   slopeAboveKink = (rateAtMax - rateAtKink) × 10000 / (10000 - kink)\n *   rate = rateAtKink + ((util - kink) × slopeAboveKink / 10000)\n * ```\n *\n * EXAMPLE UTILIZATION CURVE:\n * At kink = 80%, rateAtZero = 200 bps (2%), rateAtKink = 800 bps (8%), rateAtMax = 1200 bps (12%)\n * ```\n * Utilization 0%:   2.0%\n * Utilization 20%:  3.5%\n * Utilization 40%:  5.0%\n * Utilization 60%:  6.5%\n * Utilization 80%:  8.0% (KINK POINT)\n * Utilization 90%:  10.0%\n * Utilization 100%: 12.0%\n * ```\n *\n * COMPOSITE RATE EXAMPLE:\n * Alice deposits 50 ETH at 75% vault utilization with 6-month lock\n * 1. Utilization rate @75% = 7.5% (below kink, linear interpolation)\n * 2. Tier bonus @50 ETH = 3% (Tier 3)\n * 3. Lock bonus @6 months = 1% bonus\n * 4. Composite rate = 7.5% + 3% + 1% = 11.5%\n * 5. After 1 year, if she earned 12% but target is 5%:\n *    Excess = 7%, Performance fee = 7% × 20% = 1.4%\n *    Final rate = 12% - 1.4% = 10.6%\n *\n * SECURITY CONSIDERATIONS:\n * - All rates in basis points (100 = 1%)\n * - Tier ordering enforced (minDeposit ascending)\n * - Lock duration: 1 week to 4 years\n * - Performance fee subject to target return cap\n * - Rates cannot exceed 10000 bps (100%)\n * - Utilization formula safe from division by zero\n * - Owner-only for tier/lock/fee configuration\n *\n * DEPLOYMENT CHECKLIST:\n * 1. Deploy with RebaseTokenVault address\n * 2. Configure utilization curve (kink, rates)\n * 3. Add tier configurations (minDeposit, bonus)\n * 4. Set performance fee parameters\n * 5. Verify formulas with test scenarios\n * 6. Enable for production vault operations\n */
 contract AdvancedInterestStrategy is Ownable {
     /*//////////////////////////////////////////////////////////////
                             STATE VARIABLES
@@ -114,12 +118,56 @@ contract AdvancedInterestStrategy is Ownable {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Set utilization-based rate curve
-     * @dev Uses linear interpolation between kink and max
+     * @notice Set utilization-based rate curve with kink point
+     * @dev Uses piecewise linear interpolation with "kink" point for higher capital efficiency
      * @param kink Utilization percentage at kink (e.g., 8000 = 80%)
-     * @param rateAtZero Rate at 0% utilization (bps)
-     * @param rateAtKink Rate at kink (bps)
-     * @param rateAtMax Rate at 100% utilization (bps)
+     * @param rateAtZero Rate at 0% utilization in basis points (e.g., 200 = 2%)
+     * @param rateAtKink Rate at kink utilization (e.g., 800 = 8%)
+     * @param rateAtMax Rate at 100% utilization (e.g., 1200 = 12%)
+     *
+     * REQUIREMENTS:
+     * - kink must be between 1000 (10%) and 10000 (100%)
+     * - rateAtZero < rateAtKink < rateAtMax (ascending)
+     * - Can only be called by owner
+     *
+     * EFFECTS:
+     * - Updates s_utilizationKink, s_rateAtZero, s_rateAtKink, s_rateAtMax
+     * - Emits UtilizationRatesUpdated event
+     * - Applies to all future interest calculations
+     *
+     * UTILIZATION CURVE MECHANICS:
+     * The kink point creates a two-slope curve:
+     * 
+     * Slope 1 (Below kink - Gentle):
+     * slope = (rateAtKink - rateAtZero) * 10000 / kink
+     * rate = rateAtZero + (utilization * slope / 10000)
+     * 
+     * Slope 2 (Above kink - Steep):
+     * slope = (rateAtMax - rateAtKink) * 10000 / (10000 - kink)
+     * rate = rateAtKink + ((utilization - kink) * slope / 10000)
+     *
+     * EXAMPLE: DEFAULT CONFIGURATION
+     * ```
+     * kink = 8000 (80%)
+     * rateAtZero = 200 (2%)
+     * rateAtKink = 800 (8%)
+     * rateAtMax = 1200 (12%)
+     * 
+     * Slope below kink = (800 - 200) * 10000 / 8000 = 750 bps per 100%
+     * Slope above kink = (1200 - 800) * 10000 / 2000 = 2000 bps per 100%
+     * 
+     * Results:
+     * 20% utilization: 2% + (20% * 750 / 10000) = 3.5%
+     * 50% utilization: 2% + (50% * 750 / 10000) = 5.75%
+     * 80% utilization: 8% (at kink)
+     * 90% utilization: 8% + (10% * 2000 / 10000) = 10%
+     * ```
+     *
+     * USE CASES:
+     * 1. Conservative: Low spread (200 → 400 → 500 = lower rates)
+     * 2. Moderate: Balanced spread (200 → 800 → 1200 = balanced)
+     * 3. Aggressive: High spread (100 → 1000 → 2000 = higher rates)
+     * 4. Emergency: Extreme (50 → 100 → 200 = minimal rates)
      */
     function setUtilizationRates(
         uint256 kink,
@@ -140,10 +188,45 @@ contract AdvancedInterestStrategy is Ownable {
     }
 
     /**
-     * @notice Calculate interest rate based on utilization
-     * @dev Linear interpolation between kink and max rates
-     * @param utilizationBps Current utilization in basis points
+     * @notice Calculate interest rate based on vault utilization with kink curve
+     * @dev Implements piecewise linear interpolation (two-slope curve)
+     * @param utilizationBps Current vault utilization in basis points (0-10000)
      * @return Rate in basis points
+     *
+     * RETURNS:
+     * - 0%: rateAtZero
+     * - 1-80%: Linear from rateAtZero to rateAtKink
+     * - 80%: rateAtKink (kink point)
+     * - 81-100%: Linear from rateAtKink to rateAtMax
+     * - 100%: rateAtMax
+     *
+     * FORMULA:
+     * ```
+     * if utilization = 0:
+     *   return rateAtZero
+     * if utilization >= 10000:
+     *   return rateAtMax
+     * if utilization < kink:
+     *   slope = (rateAtKink - rateAtZero) * 10000 / kink
+     *   return rateAtZero + (utilization * slope / 10000)
+     * else (utilization >= kink):
+     *   utilAboveKink = utilization - kink
+     *   utilRangeAboveKink = 10000 - kink
+     *   slope = (rateAtMax - rateAtKink) * 10000 / utilRangeAboveKink
+     *   return rateAtKink + (utilAboveKink * slope / 10000)
+     * ```
+     *
+     * EXAMPLES (with defaults: kink=80%, 2%→8%→12%):
+     * - utilization 0%:   2% (rateAtZero)
+     * - utilization 40%:  5% (halfway to kink)
+     * - utilization 80%:  8% (at kink point)
+     * - utilization 90%:  10% (halfway above kink)
+     * - utilization 100%: 12% (rateAtMax)
+     *
+     * GAS EFFICIENCY:
+     * - Early returns for 0% and 100%
+     * - Single multiplication and division for each branch
+     * - Total gas: ~3-4k
      */
     function calculateUtilizationRate(uint256 utilizationBps) public view returns (uint256) {
         if (utilizationBps == 0) {
@@ -172,10 +255,53 @@ contract AdvancedInterestStrategy is Ownable {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Add a new deposit tier with bonus rates
-     * @dev Tiers should be ordered by minDeposit ascending
-     * @param minDeposit Minimum deposit to reach this tier
-     * @param bonusRateBps Additional rate bonus for this tier (bps)
+     * @notice Add a new deposit tier with bonus rates (loyalty rewards)
+     * @dev Tiers must be ordered by minDeposit ascending for getTierBonus() to work correctly
+     * @param minDeposit Minimum deposit to qualify for this tier (in wei)
+     * @param bonusRateBps Additional rate bonus for this tier (basis points, e.g., 300 = 3%)
+     *
+     * REQUIREMENTS:
+     * - Can only be called by owner
+     * - bonusRateBps must not exceed 10000 (100%)
+     * - If any tiers exist, minDeposit must be strictly greater than last tier's minDeposit
+     *
+     * EFFECTS:
+     * - Adds new tier to s_tiers array
+     * - Emits TierAdded event with index and configuration
+     * - Applies to all future deposits
+     *
+     * TIER SYSTEM:
+     * Each tier specifies a deposit threshold and bonus rate.
+     * getTierBonus() returns the HIGHEST matching tier for a deposit.
+     *
+     * EXAMPLE TIER CONFIGURATION:
+     * ```
+     * Tier 0: 0 ETH → +0% bonus (default, no minimum)
+     * Tier 1: 1 ETH → +0.5% bonus
+     * Tier 2: 10 ETH → +1% bonus
+     * Tier 3: 100 ETH → +3% bonus
+     * Tier 4: 1000 ETH → +5% bonus
+     * 
+     * getTierBonus(5 ETH) = 0.5% (matches Tier 1)
+     * getTierBonus(50 ETH) = 1% (matches Tier 2, highest applicable)
+     * getTierBonus(1000 ETH) = 5% (matches Tier 4)
+     * getTierBonus(500 ETH) = 3% (matches Tier 3, not Tier 4)
+     * ```
+     *
+     * ORDERING REQUIREMENT:
+     * ```
+     * addTier(1 ether, 50);      // Tier 1: 1 ETH, +0.5%
+     * addTier(10 ether, 100);    // Tier 2: 10 ETH, +1%   ✓ OK (10 > 1)
+     * addTier(5 ether, 75);      // Tier 3: 5 ETH  ✗ REVERTS (5 < 10)
+     * ```
+     *
+     * GOVERNANCE:
+     * - Adjust tiers to incentivize deposits during low utilization
+     * - Increase tiers during growth phase
+     * - Remove tiers to simplify (e.g., move to flat bonus)
+     *
+     * GAS COST:
+     * - ~40k gas (array push + event emission)
      */
     function addTier(uint256 minDeposit, uint256 bonusRateBps) external onlyOwner {
         if (bonusRateBps > 10000) revert InvalidTierConfiguration();
