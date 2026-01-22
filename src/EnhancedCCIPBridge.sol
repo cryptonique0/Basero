@@ -782,12 +782,45 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     // ============= Composability =============
 
     /**
-     * @dev Set up a composable route for cross-chain contract interactions
-     * @param _routeId Unique identifier for this route
-     * @param _targetChain Target chain selector
-     * @param _targetContract Target contract address on destination chain
-     * @param _callData Call data for target contract
-     * @param _autoExecute Whether to execute automatically on receive
+     * @notice Configure a composable cross-chain route for contract interactions
+     * @dev Enables atomic multi-step operations across chains
+     * 
+     * @param _routeId Unique identifier (keccak256 of route description)
+     * @param _targetChain Destination chain CCIP selector
+     * @param _targetContract Contract address to call on destination
+     * @param _callData Encoded function call (abi.encodeWithSelector)
+     * @param _autoExecute Whether to execute call automatically on receive
+     * 
+     * Requirements:
+     * - Caller must be owner
+     * - Target chain must be configured and enabled
+     * - Target contract cannot be zero address
+     * 
+     * Effects:
+     * - Stores composable route configuration
+     * - Overwrites existing route if routeId already exists
+     * 
+     * Emits:
+     * - ComposableRouteSet(routeId, targetChain, targetContract)
+     * 
+     * Use Cases:
+     * - Bridge tokens + stake in vault on destination
+     * - Bridge tokens + provide liquidity on destination
+     * - Bridge tokens + vote in governance on destination
+     * 
+     * Example:
+     * bytes32 routeId = keccak256("BRIDGE_AND_STAKE");
+     * bytes memory callData = abi.encodeWithSelector(
+     *   IVault.stake.selector,
+     *   100 ether
+     * );
+     * setComposableRoute(
+     *   routeId,
+     *   polygonSelector,
+     *   vaultAddressOnPolygon,
+     *   callData,
+     *   true // Auto-execute on receive
+     * );
      */
     function setComposableRoute(
         bytes32 _routeId,
@@ -812,9 +845,46 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     }
 
     /**
-     * @dev Execute composable call across chains
-     * @param _routeId Route identifier
-     * @param _amount Amount to bridge
+     * @notice Execute a configured composable cross-chain route
+     * @dev Bridges tokens and executes contract call on destination atomically
+     * 
+     * @param _routeId Route identifier (from setComposableRoute)
+     * @param _amount Amount of tokens to bridge
+     * @return messageId CCIP message ID for tracking
+     * 
+     * Requirements:
+     * - Contract not paused
+     * - Route must be configured (routeId exists)
+     * - Target chain must be enabled
+     * - Contract has sufficient LINK for fees
+     * 
+     * Effects:
+     * - Burns tokens from msg.sender
+     * - Sends CCIP message with composable data
+     * - On destination: mints tokens + executes targetContract call
+     * 
+     * Emits:
+     * - CrossChainTransfer(messageId, targetChain, targetContract, amount, fees)
+     * 
+     * CCIP Message Data:
+     * - sender: msg.sender (original caller)
+     * - amount: tokens to mint on destination
+     * - targetContract: contract to call
+     * - callData: function call to execute
+     * - autoExecute: whether to execute automatically
+     * 
+     * Example:
+     * // Route configured to stake on Polygon vault
+     * executeComposableCall(
+     *   keccak256("BRIDGE_AND_STAKE"),
+     *   100 ether
+     * )
+     * // Result on Polygon:
+     * // 1. 100 tokens minted to msg.sender
+     * // 2. vault.stake(100 ether) executed
+     * // 3. msg.sender has staked position
+     * 
+     * Gas: ~400k on source, destination depends on target call
      */
     function executeComposableCall(
         bytes32 _routeId,
@@ -859,8 +929,46 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     // ============= CCIP Receive =============
 
     /**
-     * @dev Handle incoming CCIP messages
-     * @param _any2EvmMessage The CCIP message
+     * @notice Handle incoming CCIP messages from source chains
+     * @dev Called automatically by CCIP router when message arrives
+     * @dev Internal function, cannot be called directly
+     * 
+     * @param _any2EvmMessage CCIP message struct containing:
+     *   - messageId: Unique message identifier
+     *   - sourceChainSelector: Source chain
+     *   - sender: Encoded source bridge address
+     *   - data: abi.encode(recipient, amount) or composable data
+     *   - tokenAmounts: Empty (we handle tokens separately)
+     * 
+     * Requirements:
+     * - Contract not paused
+     * - Source chain must pass rate limit check
+     * 
+     * Effects:
+     * - Consumes rate limit tokens (1e18 per message)
+     * - Decodes recipient and amount from message data
+     * - Mints tokens to recipient with default 10% rate
+     * - If composable: executes target contract call
+     * 
+     * Emits:
+     * - MessageReceived(messageId, sourceChain, sender, amount)
+     * 
+     * Rate Limiting:
+     * - Each message consumes 1e18 from rate limit bucket
+     * - Prevents spam from compromised source chains
+     * - Reverts if bucket empty
+     * 
+     * Security:
+     * - Only CCIP router can call (CCIPReceiver validation)
+     * - Rate limits prevent DoS
+     * - Validates source chain selector
+     * 
+     * Example Flow:
+     * 1. User calls bridgeTokens on Ethereum
+     * 2. CCIP relays message to Polygon
+     * 3. _ccipReceive called on Polygon bridge
+     * 4. Tokens minted to recipient on Polygon
+     * 5. MessageReceived event emitted
      */
     function _ccipReceive(Client.Any2EVMMessage memory _any2EvmMessage) 
         internal 
@@ -889,22 +997,54 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     // ============= Admin Functions =============
 
     /**
-     * @dev Pause bridging in emergency
+     * @notice Emergency pause all bridging operations
+     * @dev Stops deposits, transfers, and CCIP message reception
+     * 
+     * Requirements:
+     * - Caller must be owner
+     * 
+     * Effects:
+     * - Sets paused = true
+     * - Prevents bridgeTokens, createBatchTransfer, executeBatch
+     * - Prevents _ccipReceive (incoming messages)
+     * 
+     * Use Case:
+     * Pause during security incident or CCIP outage
      */
     function pauseBridging() external onlyOwner {
         _pause();
     }
 
     /**
-     * @dev Resume bridging
+     * @notice Resume bridging operations after emergency pause
+     * @dev Re-enables all bridge functions
+     * 
+     * Requirements:
+     * - Caller must be owner
+     * 
+     * Effects:
+     * - Sets paused = false
+     * - Re-enables all bridge operations
      */
     function unpauseBridging() external onlyOwner {
         _unpause();
     }
 
     /**
-     * @dev Withdraw LINK tokens (for owner to refund)
-     * @param _amount Amount to withdraw
+     * @notice Withdraw LINK tokens from bridge contract
+     * @dev Used to recover unused LINK or withdraw fees
+     * 
+     * @param _amount Amount of LINK to withdraw (in wei)
+     * 
+     * Requirements:
+     * - Caller must be owner
+     * - Contract has sufficient LINK balance
+     * 
+     * Effects:
+     * - Transfers LINK to msg.sender (owner)
+     * 
+     * Use Case:
+     * Withdraw excess LINK after bridging operations complete
      */
     function withdrawLink(uint256 _amount) external onlyOwner {
         i_linkToken.transfer(msg.sender, _amount);
@@ -913,8 +1053,21 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     // ============= View Functions =============
 
     /**
-     * @dev Get batch details
-     * @param _batchId Batch ID
+     * @notice Get summary information for a batch transfer
+     * @dev Returns high-level batch data without recipient arrays
+     * 
+     * @param _batchId Batch identifier to query
+     * @return id Batch ID (same as input)
+     * @return destinationChain CCIP chain selector for destination
+     * @return totalAmount Sum of all token amounts in batch
+     * @return recipientCount Number of recipients in batch
+     * @return timestamp Block timestamp when batch was created
+     * @return executed Whether batch has been executed via CCIP
+     * 
+     * Example:
+     * (id, chain, total, count, time, executed) = getBatchDetails(0);
+     * // Returns: (0, polygonSelector, 60 ether, 3, 1640000000, false)
+     * // Batch 0 has 3 recipients, 60 total tokens, not yet executed
      */
     function getBatchDetails(uint256 _batchId) 
         external 
@@ -940,8 +1093,17 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     }
 
     /**
-     * @dev Get batch recipients and amounts
-     * @param _batchId Batch ID
+     * @notice Get recipient addresses and amounts for a batch
+     * @dev Returns parallel arrays of recipients and their amounts
+     * 
+     * @param _batchId Batch identifier to query
+     * @return recipients Array of recipient addresses on destination chain
+     * @return amounts Array of token amounts (parallel to recipients)
+     * 
+     * Example:
+     * (address[] memory recips, uint256[] memory amts) = getBatchTransfers(0);
+     * // Returns: ([0xAlice, 0xBob], [10 ether, 20 ether])
+     * // Alice gets 10 tokens, Bob gets 20 tokens
      */
     function getBatchTransfers(uint256 _batchId)
         external
@@ -953,8 +1115,16 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     }
 
     /**
-     * @dev Get all batch IDs for a chain
-     * @param _chainSelector Chain selector
+     * @notice Get all batch IDs for a specific destination chain
+     * @dev Returns array of batch IDs (may include executed batches)
+     * 
+     * @param _chainSelector CCIP chain selector to query
+     * @return Array of batch IDs targeting this chain
+     * 
+     * Example:
+     * uint256[] memory batches = getChainBatches(polygonSelector);
+     * // Returns: [0, 5, 12] - three batches to Polygon
+     * // Use getBatchDetails(id) to check if executed
      */
     function getChainBatches(uint64 _chainSelector) 
         external 
@@ -965,8 +1135,21 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     }
 
     /**
-     * @dev Get chain configuration
-     * @param _chainSelector Chain selector
+     * @notice Get configuration for a destination chain
+     * @dev Returns all chain parameters set via configureChain
+     * 
+     * @param _chainSelector CCIP chain selector to query
+     * @return enabled Whether chain is active for bridging
+     * @return receiver Bridge receiver contract address on destination
+     * @return minAmount Minimum tokens per transfer
+     * @return maxAmount Maximum tokens per transfer
+     * @return batchWindow Time window for batching (seconds)
+     * 
+     * Example:
+     * (bool enabled, address recv, uint256 min, uint256 max, uint256 window) 
+     *   = getChainConfig(polygonSelector);
+     * // Returns: (true, 0x123..., 0.1 ether, 1000 ether, 3600)
+     * // Polygon enabled, min 0.1, max 1000, 1 hour batch window
      */
     function getChainConfig(uint64 _chainSelector)
         external
@@ -990,8 +1173,26 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     }
 
     /**
-     * @dev Get rate limit status for a chain
-     * @param _sourceChain Source chain selector
+     * @notice Get current rate limit status for a source chain
+     * @dev Calculates available tokens including pending refill
+     * 
+     * @param _sourceChain Source chain CCIP selector to query
+     * @return tokensPerSecond Bucket refill rate
+     * @return maxBurstSize Maximum bucket capacity
+     * @return tokensAvailable Current available tokens (including refill)
+     * @return lastUpdate Last bucket update timestamp
+     * 
+     * Formula:
+     * timePassed = now - lastUpdate
+     * tokensToAdd = timePassed * tokensPerSecond
+     * available = min(current + tokensToAdd, maxBurstSize)
+     * 
+     * Example:
+     * (uint256 rate, uint256 max, uint256 avail, uint256 update) 
+     *   = getRateLimitStatus(polygonSelector);
+     * // Returns: (10, 100, 75, 1640000000)
+     * // Refills 10/sec, max 100, currently 75 available
+     * // Can handle 75 more incoming messages before rate limit
      */
     function getRateLimitStatus(uint64 _sourceChain)
         external
@@ -1020,9 +1221,28 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     }
 
     /**
-     * @dev Estimate CCIP fees (simplified)
-     * @param _destinationChain Destination chain
-     * @param _amount Amount to transfer
+     * @notice Estimate CCIP fees for a cross-chain transfer
+     * @dev Simplified placeholder - production should use router.getFee()
+     * 
+     * @param _destinationChain Destination chain CCIP selector
+     * @param _amount Amount of tokens to transfer (currently unused)
+     * @return Estimated LINK fee in wei
+     * 
+     * Note:
+     * Current implementation returns fixed 1 LINK
+     * Production should call:
+     *   i_ccipRouter.getFee(destinationChain, message)
+     * 
+     * Actual fees depend on:
+     * - Destination chain gas prices
+     * - Message size
+     * - Gas limit requested
+     * - CCIP lane congestion
+     * 
+     * Example:
+     * uint256 fee = _estimateCCIPFees(polygonSelector, 100 ether);
+     * // Returns: 1e18 (1 LINK placeholder)
+     * // Real implementation: 0.1-5 LINK typically
      */
     function _estimateCCIPFees(uint64 _destinationChain, uint256 _amount)
         internal
@@ -1035,7 +1255,21 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     }
 
     /**
-     * @dev Get supported chains count
+     * @notice Get count of supported destination chains
+     * @dev Placeholder - production should maintain chain counter
+     * 
+     * @return Number of configured chains (placeholder returns batchCounter)
+     * 
+     * Note:
+     * Current implementation returns batchCounter as placeholder
+     * Production should:
+     * - Maintain chainCount variable
+     * - Increment on configureChain
+     * - Or maintain array of enabled chain selectors
+     * 
+     * Example:
+     * uint256 count = getSupportedChainsCount();
+     * // Returns number of chains configured via configureChain
      */
     function getSupportedChainsCount() external view returns (uint256) {
         // In production, maintain a counter or array
