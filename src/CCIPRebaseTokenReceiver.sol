@@ -273,16 +273,158 @@ contract CCIPRebaseTokenReceiver is CCIPReceiver, Ownable, Pausable, ReentrancyG
         emit SenderAllowlisted(_sourceChainSelector, _sender);
     }
 
+    /**
+     * @notice Emergency stop for receiving bridged tokens
+     * @dev Pauses all incoming CCIP message reception
+     *
+     * REQUIREMENTS:
+     * - Can only be called by owner
+     * - Contract must not already be paused
+     *
+     * EFFECTS:
+     * - Sets paused state to true
+     * - All _ccipReceive() calls will revert with EnforcedPause()
+     * - Blocks all token minting from bridges
+     * - Does not affect existing balances
+     *
+     * USE CASES:
+     * 1. Source chain sender compromised (stop receiving malicious mints)
+     * 2. CCIP infrastructure issue detected
+     * 3. Rebase token contract bug discovered
+     * 4. Rate limiting exploited (pause while investigating)
+     * 5. Coordinated pause across all chains for protocol upgrade
+     *
+     * Example Emergency Response:
+     * ```
+     * // 1. Alert: Unusual minting activity detected
+     * // 2. Pause receiver immediately:
+     * receiver.pauseBridging()
+     * // 3. Investigate: Check source chain, CCIP logs, minting events
+     * // 4. Fix: Deploy new sender or patch vulnerability
+     * // 5. Resume: unpauseBridging() after validation
+     * ```
+     */
     function pauseBridging() external onlyOwner {
         _pause();
         emit BridgingPaused(msg.sender);
     }
 
+    /**
+     * @notice Resume receiving bridged tokens after pause
+     * @dev Unpauses CCIP message reception to restore normal operations
+     *
+     * REQUIREMENTS:
+     * - Can only be called by owner
+     * - Contract must be paused
+     *
+     * EFFECTS:
+     * - Sets paused state to false
+     * - Re-enables _ccipReceive() to process incoming messages
+     * - Restores token minting from bridges
+     * - Daily limits reset normally at midnight UTC (not affected by pause)
+     *
+     * SAFETY CHECKLIST BEFORE UNPAUSING:
+     * 1. ✅ Confirm issue is fully resolved
+     * 2. ✅ Verify sender contracts on all source chains are secure
+     * 3. ✅ Check rebase token contract for any issues
+     * 4. ✅ Review allowlisted chains and senders
+     * 5. ✅ Confirm rate limits are appropriate
+     * 6. ✅ Test bridge with small amount on testnet
+     * 7. ✅ Monitor initial messages closely after resume
+     *
+     * Example:
+     * ```
+     * // After fixing sender vulnerability:
+     * // 1. Deploy new sender on Ethereum
+     * // 2. Update allowlist:
+     * receiver.allowlistSender(EthereumSelector, newSender)
+     * // 3. Verify deployment:
+     * require(receiver.allowlistedSenders(EthereumSelector) == newSender)
+     * // 4. Resume:
+     * receiver.unpauseBridging()
+     * // 5. Monitor events for normal activity
+     * ```
+     */
     function unpauseBridging() external onlyOwner {
         _unpause();
         emit BridgingUnpaused(msg.sender);
     }
 
+    /**
+     * @notice Configure per-message and daily receive limits for a source chain
+     * @dev Two-tier rate limiting: per-bridge cap and daily cumulative limit
+     *
+     * @param _sourceChainSelector CCIP chain selector for source chain
+     * @param bridgedCap Maximum tokens per single message (18 decimals)
+     * @param dailyLimit Maximum tokens per day from this chain (18 decimals)
+     *
+     * REQUIREMENTS:
+     * - Can only be called by owner (governance)
+     * - No validation on cap values (can be 0 to disable, or type(uint256).max for unlimited)
+     *
+     * EFFECTS:
+     * - Updates chainBridgedCap[chainSelector] = bridgedCap
+     * - Updates chainDailyLimit[chainSelector] = dailyLimit
+     * - Emits ChainCapsUpdated event
+     * - Does not reset existing daily usage
+     * - Applies immediately to next message
+     *
+     * RATE LIMITING MECHANICS:
+     * Per-bridge cap: Prevents single large malicious mint
+     * Daily limit: Prevents cumulative attack over multiple messages
+     *
+     * Daily Reset Formula:
+     * ```
+     * uint256 currentDay = block.timestamp / 1 days;  // Days since epoch
+     * if (lastReceiveDay[chain] != currentDay) {
+     *     dailyReceived[chain] = 0;  // Reset at midnight UTC
+     * }
+     * ```
+     *
+     * EXAMPLE CAP SCENARIOS:
+     *
+     * Conservative (new chain, low trust):
+     * ```
+     * receiver.setChainCaps(
+     *     newChainSelector,
+     *     1_000 * 1e18,      // Max 1,000 tokens per message
+     *     10_000 * 1e18      // Max 10,000 tokens per day
+     * )
+     * ```
+     *
+     * Mature chain (high volume, trusted):
+     * ```
+     * receiver.setChainCaps(
+     *     EthereumSelector,
+     *     100_000 * 1e18,    // Max 100k tokens per message
+     *     5_000_000 * 1e18   // Max 5M tokens per day
+     * )
+     * ```
+     *
+     * Emergency (restrict during incident):
+     * ```
+     * receiver.setChainCaps(
+     *     suspiciousChain,
+     *     100 * 1e18,        // Tiny per-message
+     *     1_000 * 1e18       // Tiny daily
+     * )
+     * ```
+     *
+     * No limits (trusted internal chain):
+     * ```
+     * receiver.setChainCaps(
+     *     trustedChain,
+     *     type(uint256).max, // Unlimited per message
+     *     type(uint256).max  // Unlimited daily
+     * )
+     * ```
+     *
+     * GOVERNANCE USE CASES:
+     * 1. Initial setup: Set conservative limits
+     * 2. Scale up: Increase as protocol matures
+     * 3. Emergency: Reduce if attack detected
+     * 4. New chain: Start low, increase with proven security
+     */
     function setChainCaps(uint64 _sourceChainSelector, uint256 bridgedCap, uint256 dailyLimit) external onlyOwner {
         chainBridgedCap[_sourceChainSelector] = bridgedCap;
         chainDailyLimit[_sourceChainSelector] = dailyLimit;
@@ -290,8 +432,170 @@ contract CCIPRebaseTokenReceiver is CCIPReceiver, Ownable, Pausable, ReentrancyG
     }
 
     /**
-     * @dev Handle received CCIP messages
-     * @param any2EvmMessage CCIP message
+     * @notice Handle received CCIP messages and mint tokens on destination chain
+     * @dev Core bridge function - validates message and mints tokens with bridged interest rate
+     *
+     * @param any2EvmMessage CCIP message containing sender, amount, and interest rate
+     *        - messageId: Unique CCIP message identifier
+     *        - sourceChainSelector: Source chain (Ethereum, Arbitrum, etc.)
+     *        - sender: ABI-encoded sender contract address on source chain
+     *        - data: ABI-encoded (recipient, amount, interestRate)
+     *
+     * REQUIREMENTS:
+     * - Automatically called by CCIP router (not by users)
+     * - Contract must not be paused
+     * - Source chain must be allowlisted
+     * - Sender must match allowlisted sender for that chain
+     * - Amount must not exceed per-bridge cap (if set)
+     * - Amount must not exceed remaining daily limit (if set)
+     * - Receiver must have MINTER_ROLE on rebase token
+     *
+     * EFFECTS:
+     * - Decodes message to extract (recipient, amount, interestRate)
+     * - Resets daily counter if new day (midnight UTC)
+     * - Mints amount to recipient with their bridged interest rate
+     * - Updates daily amount counter for source chain
+     * - Emits MessageReceived event
+     *
+     * COMPLETE RECEIVE FLOW (Alice bridges 950 tokens from Ethereum → Arbitrum):
+     *
+     * Step 1: CCIP delivers message to this contract:
+     * ```
+     * messageId: 0x123...
+     * sourceChainSelector: 5009297550715157269 (Ethereum)
+     * sender: 0xABC... (encoded sender on Ethereum)
+     * data: (0xAlice, 950e18, 8%) (recipient, amount, rate)
+     * ```
+     *
+     * Step 2: Validate not paused
+     * ```
+     * if (paused()) revert SourceChainNotAllowlisted(...)
+     * // Reverts if pauseBridging() was called
+     * ```
+     *
+     * Step 3: Validate source chain
+     * ```
+     * require(allowlistedSourceChains[5009297550715157269] == true)
+     * // Reverts if Ethereum not enabled
+     * ```
+     *
+     * Step 4: Decode and validate sender
+     * ```
+     * address sender = abi.decode(message.sender, (address)) // 0xABC...
+     * require(sender == allowlistedSenders[Ethereum])
+     * // Reverts if sender not authorized
+     * ```
+     *
+     * Step 5: Decode message data
+     * ```
+     * (recipient, amount, rate) = abi.decode(data, (address, uint256, uint256))
+     * // recipient: 0xAlice
+     * // amount: 950e18
+     * // rate: 800 (8% = 800 bps)
+     * ```
+     *
+     * Step 6: Check per-bridge cap
+     * ```
+     * bridgedCap = chainBridgedCap[Ethereum] // 10,000e18
+     * require(950e18 <= 10,000e18) ✅
+     * // Reverts if amount > cap
+     * ```
+     *
+     * Step 7: Reset daily counter if new day
+     * ```
+     * currentDay = block.timestamp / 86400 // Days since epoch
+     * if (chainLastReset[Ethereum] != currentDay) {
+     *     chainLastReset[Ethereum] = currentDay
+     *     chainDailyAmount[Ethereum] = 0  // Reset at midnight UTC
+     * }
+     * ```
+     *
+     * Step 8: Check daily limit
+     * ```
+     * dailyLimit = chainDailyLimit[Ethereum] // 500,000e18
+     * currentDaily = chainDailyAmount[Ethereum] // 50,000e18 (so far today)
+     * require(50,000 + 950 <= 500,000) ✅
+     * // Reverts if would exceed daily limit
+     * remaining = 500,000 - 50,000 = 450,000 available
+     * ```
+     *
+     * Step 9: Mint tokens with bridged interest rate
+     * ```
+     * rebaseToken.mint(0xAlice, 950e18, 8%)
+     * // Alice receives 950 tokens at 8% APY (same as Ethereum)
+     * // Interest accrues at 8% on Arbitrum starting from receive time
+     * ```
+     *
+     * Step 10: Update daily accounting
+     * ```
+     * chainDailyAmount[Ethereum] = 50,000 + 950 = 50,950
+     * // Remaining today: 500,000 - 50,950 = 449,050
+     * ```
+     *
+     * Step 11: Emit event
+     * ```
+     * emit MessageReceived(
+     *     messageId: 0x123...,
+     *     sourceChain: Ethereum,
+     *     sender: 0xABC...,
+     *     recipient: 0xAlice,
+     *     amount: 950e18
+     * )
+     * ```
+     *
+     * RESULT:
+     * - Alice has 950 tokens on Arbitrum at 8% APY
+     * - Same locked rate as her original Ethereum tokens
+     * - Can use tokens on Arbitrum immediately
+     * - Interest accrues at 8% on Arbitrum
+     *
+     * ERROR CONDITIONS:
+     *
+     * 1. Paused (emergency stop):
+     * ```
+     * pauseBridging() called → revert SourceChainNotAllowlisted
+     * Use: Stop all receives during incident
+     * ```
+     *
+     * 2. Chain not allowlisted:
+     * ```
+     * allowlistedSourceChains[chain] == false → revert
+     * Use: Reject messages from disabled or unknown chains
+     * ```
+     *
+     * 3. Sender not authorized:
+     * ```
+     * sender != allowlistedSenders[chain] → revert SenderNotAllowlisted
+     * Use: Prevent malicious senders from minting
+     * ```
+     *
+     * 4. Per-bridge cap exceeded:
+     * ```
+     * amount > chainBridgedCap[chain] → revert BridgeCapExceeded
+     * Example: Trying to receive 15,000 when cap is 10,000
+     * Use: Prevent single large malicious mint
+     * ```
+     *
+     * 5. Daily limit exceeded:
+     * ```
+     * daily + amount > chainDailyLimit[chain] → revert BridgeDailyLimitExceeded
+     * Example: Received 499,500 today, trying to receive 1,000 (limit 500,000)
+     * Use: Prevent cumulative attack over multiple messages
+     * Returns: remaining = dailyLimit - currentDaily (500 tokens left)
+     * ```
+     *
+     * GAS COSTS:
+     * - CCIP delivery: ~150-250k gas (paid by CCIP infrastructure, not user)
+     * - User pays on SOURCE chain for CCIP fees (LINK + gas)
+     * - Destination receive is free for user
+     *
+     * SECURITY NOTES:
+     * - NonReentrant prevents reentrancy during mint
+     * - Interest rate from source chain is trusted (sender validated)
+     * - Daily limit resets at midnight UTC (deterministic)
+     * - Caps can be 0 (disabled) or type(uint256).max (unlimited)
+     * - Multiple allowlisted sources can send to one receiver
+     * - One sender per source chain (1:1 mapping)
      */
     function _ccipReceive(Client.Any2EVMMessage memory any2EvmMessage) internal override nonReentrant {
         // Validate that bridging is not paused
@@ -349,7 +653,23 @@ contract CCIPRebaseTokenReceiver is CCIPReceiver, Ownable, Pausable, ReentrancyG
     }
 
     /**
-     * @dev Get router address
+     * @notice Get the CCIP router address for this destination chain
+     * @dev Returns immutable router set at deployment
+     *
+     * @return address CCIP router contract address
+     *
+     * ROUTER ADDRESSES (Mainnets):
+     * - Ethereum: 0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D
+     * - Arbitrum One: 0x141fa059441E0ca23ce184B6A78bafD2A517DdE8
+     * - Optimism: 0x3206695CaE29952f4b0c22a169725a865bc8Ce0f
+     * - Base: 0x673AA85efd75080031d44fcA061575d1dA427A28
+     * - Polygon: 0x3C3D92629A02a8D95D5CB9650fe49C3544f69B43
+     *
+     * USE CASES:
+     * 1. Verify deployment: Confirm correct router for chain
+     * 2. Frontend: Display router to users for transparency
+     * 3. Debugging: Check router matches expected address
+     * 4. Audit: Verify router is official Chainlink contract
      */
     function getRouter() external view returns (address) {
         return address(i_ccipRouter);
