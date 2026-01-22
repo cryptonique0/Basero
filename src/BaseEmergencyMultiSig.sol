@@ -6,17 +6,23 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 
 /**
  * @title BaseEmergencyMultiSig
+ * @author Basero Labs
  * @notice Emergency multi-signature contract for critical protocol operations
  * @dev Implements threshold-based approval for pause, parameter updates, and emergency procedures
- * 
- * **Features:**
- * - Threshold-based approval (e.g., 3 of 5 signers)
- * - Proposal queueing with expiration
- * - Execution with validation
- * - Multiple roles (admin, signer, executor)
- * - Emergency timeout bypass
- * - Audit trail via events
- */
+ *
+ * ARCHITECTURE:
+ * Threshold signature scheme: N of M signers required for approval.
+ * Proposals have lifecycle: Pending → Approved → Executed (or Expired/Cancelled)
+ * Time-based expiration and execution delay ensure deliberate action.
+ *
+ * FIVE PROPOSAL STATUSES:\n * 1. Pending: Created, awaiting signatures\n * 2. Approved: Threshold reached, ready to execute\n * 3. Executed: Successfully executed on target\n * 4. Cancelled: Manually cancelled by proposer\n * 5. Expired: Exceeded proposalExpiration without approval\n *
+ * SEVEN OPERATION TYPES:\n * 1. Pause: Emergency stop (calls pause() on pauseTarget)\n * 2. Unpause: Resume operations (calls unpause())\n * 3. UpdateParameter: Modify protocol config (setFee, setRate, etc.)\n * 4. EmergencyWithdraw: Extract funds in crisis\n * 5. UpdateThreshold: Change signer requirement (N of M)\n * 6. AddSigner: Grant signing authority to new address\n * 7. RemoveSigner: Revoke signing authority\n *
+ * WORKFLOW:\n * ```\n * Signer 1 creates proposal\n * ↓\n * Signer 2 approves → approvalsCount = 1\n * ↓\n * Signer 3 approves → approvalsCount = 2\n * ↓\n * Signer 4 approves → approvalsCount = 3 = threshold ✓ APPROVED\n * ↓\n * Wait executionDelay (default: 2 days) for safety\n * ↓\n * Executor calls executeProposal()\n * ↓\n * Encoded callData executed on target contract\n * ↓\n * Status = EXECUTED, ProposalExecuted event emitted\n * ```\n *
+ * TIMELOCK MECHANICS:\n * - proposalExpiration: Default 7 days. Proposal must be approved within this window.\n * - executionDelay: Default 2 days. Must wait after approval before execution.\n * - Prevents rapid-fire proposals and allows override discovery\n *
+ * THRESHOLD EXAMPLE:\n * 5-of-7 multisig configuration:\n * - 7 signers can propose\n * - Need 5 signatures to approve\n * - Each signer votes independently\n * - Threshold check: approvalsCount >= 5\n *
+ * EMERGENCY MODE:\n * When activated, bypasses executionDelay for critical situations.\n * - Pause/Unpause operations execute immediately after approval\n * - Other operations still subject to delay\n * - Timeout: emergencyModeTimeout (default: 1 day)\n * - Prevents abuse (automatically deactivates)\n *
+ * EXAMPLE PAUSE SEQUENCE:\n * ```\n * Proposal created: pauseProtocol()"
+ * Duration: 3 days to execution\n * \n * Day 0: Proposed\n * Day 1: 4 signatures collected (not yet threshold)\n * Day 2: 5th signature → APPROVED\n * Day 3: Emergency mode active, wait 2 days removed\n * Day 3: Executor calls executeProposal()\n * Day 3: Protocol paused, pauseTarget.pause() called\n * ```\n *\n * SECURITY:\n * - All proposals stored immutable (cannot be altered)\n * - Approval mapping prevents double-voting\n * - Signer list dynamic (can add/remove safely)\n * - Threshold validation on every approval\n * - Encoding prevents parameter tampering\n * - Events provide full audit trail\n * - Emergency mode timeout ensures it doesn't persist\n *\n * DEPLOYMENT:\n * 1. Deploy with initial signers and threshold\n * 2. Set executionDelay (2 days recommended)\n * 3. Set proposalExpiration (7 days recommended)\n * 4. Set pauseTarget (PauseRecovery or pausable contract)\n * 5. Test add/remove signer proposals\n * 6. Verify threshold enforcement\n * 7. Coordinate with signers on communication\n * 8. Set up automated alerts for new proposals\n */
 contract BaseEmergencyMultiSig is Ownable {
     
     // ============ Enums ============
