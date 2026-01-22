@@ -502,10 +502,26 @@ contract CCIPRebaseTokenSender is Ownable, Pausable {
     }
 
     /**
-     * @dev Send tokens cross-chain
-     * @param _destinationChainSelector Destination chain selector
-     * @param _receiver Receiver address on destination chain
-     * @param _amount Amount of tokens to send
+     * @notice Bridge rebase tokens cross-chain via Chainlink CCIP
+     * @dev Burns tokens on source, sends CCIP message to mint on destination
+     *
+     * @param _destinationChainSelector CCIP chain selector for target chain
+     * @param _receiver Address to receive tokens on destination chain
+     * @param _amount Total amount of tokens to bridge (before fees)
+     * @return messageId Unique CCIP message ID for tracking
+     *
+     * COMPLETE BRIDGE FLOW:
+     * 1. Validate chain allowlisted & receiver set
+     * 2. Check per-send cap & daily limit
+     * 3. Calculate fee: (amount × chainFeeBps) / 10,000
+     * 4. Burn amount from user
+     * 5. Send CCIP message with (receiver, bridgedAmount, userRate)
+     * 6. Mint protocolFee to feeRecipient
+     * 7. Update daily counter
+     *
+     * Example: 1000 tokens → Arbitrum (5% fee)
+     * - Burn 1000, Fee 50, Bridge 950
+     * - User receives 950 on Arbitrum at same locked rate
      */
     function sendTokensCrossChain(
         uint64 _destinationChainSelector,
@@ -591,8 +607,43 @@ contract CCIPRebaseTokenSender is Ownable, Pausable {
     }
 
     /**
-     * @dev Withdraw LINK tokens
-     * @param _beneficiary Address to send tokens to
+     * @notice Withdraw all LINK tokens from contract to beneficiary
+     * @dev Emergency function to recover LINK tokens or redistribute funds
+     *
+     * @param _beneficiary Address to receive withdrawn LINK tokens
+     *        - Typically owner, multisig, or treasury
+     *        - Can be any address (no zero-address validation)
+     *
+     * REQUIREMENTS:
+     * - Can only be called by owner
+     * - No validation on beneficiary (could send to zero, be careful)
+     *
+     * EFFECTS:
+     * - Transfers entire LINK balance to beneficiary
+     * - Contract will have 0 LINK after (cannot pay for bridges)
+     * - Future sendTokensCrossChain() calls will revert with NotEnoughBalance
+     *
+     * USE CASES:
+     * 1. Emergency: Recover LINK if contract compromised
+     * 2. Rebalancing: Move excess LINK to other chains
+     * 3. Upgrade: Withdraw before migrating to new contract
+     * 4. Decommission: Recover all funds when sunsetting
+     *
+     * ⚠️ WARNING:
+     * After withdrawal, contract cannot bridge until LINK refunded.
+     * Users will get NotEnoughBalance errors. Consider:
+     * 1. Pause bridging first: pauseBridging()
+     * 2. Withdraw LINK: withdrawLINK(treasury)
+     * 3. Announce to users
+     * 4. Refund LINK when ready: LINK.transfer(sender, amount)
+     * 5. Unpause: unpauseBridging()
+     *
+     * Example:
+     * ```
+     * // Recover 10 LINK
+     * sender.withdrawLINK(treasury)
+     * // Contract now has 0 LINK, cannot bridge
+     * ```
      */
     function withdrawLINK(address _beneficiary) external onlyOwner {
         uint256 amount = i_linkToken.balanceOf(address(this));
@@ -600,7 +651,23 @@ contract CCIPRebaseTokenSender is Ownable, Pausable {
     }
 
     /**
-     * @dev Get router address
+     * @notice Get the Chainlink CCIP Router address
+     * @dev Returns immutable router reference set at deployment
+     *
+     * @return Address of CCIP Router contract
+     *
+     * ROUTER ADDRESSES (Mainnet):
+     * - Ethereum: 0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D
+     * - Arbitrum: 0x141fa059441E0ca23ce184B6A78bafD2A517DdE8
+     * - Optimism: 0x3206695CaE29952f4b0c22a169725a865bc8Ce0f
+     * - Base: 0x673AA85efd75080031d44fcA061575d1dA427A28
+     * - Polygon: 0x3C3D92629A02a8D95D5CB9650fe49C3544f69B43
+     *
+     * USE CASES:
+     * - Verify correct router for chain
+     * - Frontend integration (display to users)
+     * - Debugging CCIP interactions
+     * - Audit verification
      */
     function getRouter() external view returns (address) {
         return address(i_router);
