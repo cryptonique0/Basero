@@ -13,7 +13,13 @@
 (define-constant ERR-NOT-LIQUIDATABLE (err u5505))
 (define-constant ERR-PAUSED (err u5506))
 (define-constant ERR-BLACKLISTED (err u5507))
+(define-constant ERR-ORACLE (err u5508))
 (define-constant MAX-FEE-BASIS-POINTS u1000)  ;; 10% max fee
+
+;; Oracle trait: expected external contract must implement get-price
+(define-trait price-oracle-trait
+  ((get-price (principal) (response uint uint)))
+)
 
 ;; Data Variables
 (define-data-var total-collateral-value uint u0)
@@ -22,6 +28,8 @@
 (define-data-var borrow-fee-basis-points uint u100)  ;; 1.0% default
 (define-data-var is-paused bool false)
 (define-data-var collected-fees uint u0)
+(define-data-var event-counter uint u0)
+(define-data-var price-oracle (optional principal) none)
 
 ;; Data Maps - Using stacks-block-time for Clarity 4
 (define-map collateral-types principal {
@@ -32,6 +40,7 @@
   is-paused: bool,  ;; Asset-level pause
   price-per-unit: uint,  ;; Price in USD (6 decimals)
   total-deposited: uint,
+  reward-rate-bps: uint,  ;; Rewards per second in basis points
   added-at: uint  ;; Clarity 4: Unix timestamp
 })
 
@@ -45,6 +54,12 @@
   total-value-usd: uint,
   total-borrowed: uint,
   health-factor: uint  ;; 10000 = 1.0 (healthy)
+})
+
+;; Rewards tracking per user and asset
+(define-map user-rewards {user: principal, asset: principal} {
+  accrued: uint,
+  last-updated: uint
 })
 
 ;; Admin role mapping
@@ -80,6 +95,7 @@
       is-paused: false,
       price-per-unit: u1000000,  ;; Default $1.00
       total-deposited: u0,
+      reward-rate-bps: u0,
       added-at: stacks-block-time
     })
 
@@ -91,6 +107,8 @@
       threshold: threshold,
       timestamp: stacks-block-time
     })
+
+    (log-event "collateral-type-added" tx-sender asset ltv)
 
     (ok true)
   )
@@ -105,8 +123,101 @@
     (map-set collateral-types asset
       (merge collateral-type { price-per-unit: new-price }))
 
+    (log-event "price-updated" tx-sender asset new-price)
+
     (ok true)
   )
+)
+
+;; Oracle integration
+(define-public (set-price-oracle (new-oracle <price-oracle-trait>))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
+    (var-set price-oracle (some new-oracle))
+    (log-event "oracle-updated" tx-sender new-oracle u0)
+    (ok true)
+  )
+)
+
+(define-public (refresh-price-from-oracle (asset principal))
+  (let (
+    (oracle (unwrap! (var-get price-oracle) ERR-ORACLE))
+    (price-res (contract-call? oracle get-price asset))
+  )
+    (match price-res
+      price (let ((collateral-type (unwrap! (map-get? collateral-types asset) ERR-INVALID-COLLATERAL)))
+        (map-set collateral-types asset (merge collateral-type { price-per-unit: price }))
+        (log-event "price-refreshed" tx-sender asset price)
+        (ok price))
+      err (err ERR-ORACLE))
+  )
+)
+
+;; Collateral parameter upgrades
+(define-public (update-collateral-params (asset principal) (ltv uint) (threshold uint))
+  (let ((collateral-type (unwrap! (map-get? collateral-types asset) ERR-INVALID-COLLATERAL)))
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
+    (map-set collateral-types asset (merge collateral-type {
+      ltv-ratio: ltv,
+      liquidation-threshold: threshold
+    }))
+    (log-event "collateral-params-updated" tx-sender asset ltv)
+    (ok true)
+  )
+)
+
+;; Rewards configuration and claims
+(define-public (set-reward-rate (asset principal) (rate-bps uint))
+  (let ((collateral-type (unwrap! (map-get? collateral-types asset) ERR-INVALID-COLLATERAL)))
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
+    (asserts! (<= rate-bps u10000) ERR-INVALID-COLLATERAL)
+    (map-set collateral-types asset (merge collateral-type { reward-rate-bps: rate-bps }))
+    (log-event "reward-rate-updated" tx-sender asset rate-bps)
+    (ok true)
+  )
+)
+
+(define-public (claim-rewards (asset principal))
+  (let (
+    (collateral (default-to { amount: u0 } (map-get? user-collateral {user: tx-sender, asset: asset})))
+  )
+    (try! (accrue-rewards tx-sender asset (get amount collateral)))
+    (let (
+      (reward-state (default-to { accrued: u0, last-updated: stacks-block-time } (map-get? user-rewards {user: tx-sender, asset: asset})))
+      (payout (get accrued reward-state))
+    )
+      (asserts! (> payout u0) ERR-INSUFFICIENT-COLLATERAL)
+      (try! (stx-transfer? payout CONTRACT-OWNER tx-sender))
+      (map-set user-rewards {user: tx-sender, asset: asset} { accrued: u0, last-updated: stacks-block-time })
+      (log-event "rewards-claimed" tx-sender asset payout)
+      (ok payout)
+    )
+  )
+)
+
+;; Batch operations for gas efficiency
+(define-public (deposit-collateral-batch (items (list 10 {asset: principal, amount: uint})))
+  (fold deposit-batch-fn items (ok true))
+)
+
+(define-private (deposit-batch-fn (item {asset: principal, amount: uint}) (state (response bool bool)))
+  (match state
+    ok-state (begin
+      (try! (deposit-collateral (get asset item) (get amount item)))
+      (ok ok-state))
+    err-state err-state)
+)
+
+(define-public (withdraw-collateral-batch (items (list 10 {asset: principal, amount: uint})))
+  (fold withdraw-batch-fn items (ok true))
+)
+
+(define-private (withdraw-batch-fn (item {asset: principal, amount: uint}) (state (response bool bool)))
+  (match state
+    ok-state (begin
+      (try! (withdraw-collateral (get asset item) (get amount item)))
+      (ok ok-state))
+    err-state err-state)
 )
 
 (define-public (deposit-collateral (asset principal) (amount uint))
@@ -131,6 +242,9 @@
     ;; Validate inputs
     (asserts! (get is-enabled collateral-type) ERR-INVALID-COLLATERAL)
     (asserts! (> amount u0) ERR-INVALID-COLLATERAL)
+
+    ;; Accrue rewards on existing balance before mutation
+    (try! (accrue-rewards tx-sender asset (get amount current-collateral)))
 
     ;; Transfer STX to contract (for STX collateral)
     ;; In production, add SIP-010 token transfers for other assets
@@ -171,6 +285,8 @@
       timestamp: stacks-block-time
     })
 
+    (log-event "collateral-deposited" tx-sender asset net-amount)
+
     (ok new-amount)
   )
 )
@@ -196,6 +312,9 @@
 
     (asserts! (>= (get amount current-collateral) amount) ERR-INSUFFICIENT-COLLATERAL)
     (asserts! (> amount u0) ERR-INVALID-COLLATERAL)
+
+    ;; Accrue rewards on current balance before mutation
+    (try! (accrue-rewards tx-sender asset (get amount current-collateral)))
 
     ;; Check health factor - can't withdraw if it would make position unhealthy
     (asserts! (>= max-borrow borrowed) ERR-BELOW-LIQUIDATION)
@@ -238,6 +357,8 @@
       timestamp: stacks-block-time
     })
 
+    (log-event "collateral-withdrawn" tx-sender asset net-amount)
+
     (ok new-amount)
   )
 )
@@ -248,6 +369,9 @@
     (fee-amount (/ (* borrow-amount (var-get borrow-fee-basis-points)) u10000))
   )
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
+
+    ;; Accrue rewards before changing borrowed state
+    (try! (accrue-rewards user asset (get amount current-collateral)))
 
     ;; Collect borrow fees
     (if (> fee-amount u0)
@@ -269,6 +393,8 @@
       timestamp: stacks-block-time
     })
 
+    (log-event "borrow-recorded" user asset borrow-amount)
+
     (ok true)
   )
 )
@@ -280,6 +406,7 @@
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
     (map-set admin-roles new-admin true)
     (print { event: "admin-added", admin: new-admin, timestamp: stacks-block-time })
+    (log-event "admin-added" tx-sender new-admin u1)
     (ok true)
   )
 )
@@ -289,6 +416,7 @@
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
     (map-delete admin-roles admin-to-remove)
     (print { event: "admin-removed", admin: admin-to-remove, timestamp: stacks-block-time })
+    (log-event "admin-removed" tx-sender admin-to-remove u0)
     (ok true)
   )
 )
@@ -300,6 +428,7 @@
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
     (var-set is-paused (not (var-get is-paused)))
     (print { event: "global-pause-toggled", paused: (var-get is-paused), timestamp: stacks-block-time })
+    (log-event "global-pause-toggled" tx-sender CONTRACT-OWNER (if (var-get is-paused) u1 u0))
     (ok true)
   )
 )
@@ -312,6 +441,7 @@
     (map-set collateral-types asset
       (merge collateral-type { is-paused: (not (get is-paused collateral-type)) }))
     (print { event: "asset-pause-toggled", asset: asset, paused: (not (get is-paused collateral-type)), timestamp: stacks-block-time })
+    (log-event "asset-pause-toggled" tx-sender asset (if (not (get is-paused collateral-type)) u1 u0))
     (ok true)
   )
 )
@@ -323,6 +453,7 @@
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
     (map-set user-blacklist user true)
     (print { event: "user-blacklisted", user: user, timestamp: stacks-block-time })
+    (log-event "user-blacklisted" tx-sender user u1)
     (ok true)
   )
 )
@@ -332,6 +463,7 @@
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
     (map-delete user-blacklist user)
     (print { event: "user-blacklist-removed", user: user, timestamp: stacks-block-time })
+    (log-event "user-blacklist-removed" tx-sender user u0)
     (ok true)
   )
 )
@@ -341,6 +473,7 @@
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
     (map-set asset-blacklist asset true)
     (print { event: "asset-blacklisted", asset: asset, timestamp: stacks-block-time })
+    (log-event "asset-blacklisted" tx-sender asset u1)
     (ok true)
   )
 )
@@ -350,6 +483,7 @@
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
     (map-delete asset-blacklist asset)
     (print { event: "asset-blacklist-removed", asset: asset, timestamp: stacks-block-time })
+    (log-event "asset-blacklist-removed" tx-sender asset u0)
     (ok true)
   )
 )
@@ -362,6 +496,7 @@
     (asserts! (<= new-fee MAX-FEE-BASIS-POINTS) ERR-INVALID-COLLATERAL)
     (var-set deposit-fee-basis-points new-fee)
     (print { event: "deposit-fee-updated", fee-bps: new-fee, timestamp: stacks-block-time })
+    (log-event "deposit-fee-updated" tx-sender CONTRACT-OWNER new-fee)
     (ok true)
   )
 )
@@ -372,6 +507,7 @@
     (asserts! (<= new-fee MAX-FEE-BASIS-POINTS) ERR-INVALID-COLLATERAL)
     (var-set withdrawal-fee-basis-points new-fee)
     (print { event: "withdrawal-fee-updated", fee-bps: new-fee, timestamp: stacks-block-time })
+    (log-event "withdrawal-fee-updated" tx-sender CONTRACT-OWNER new-fee)
     (ok true)
   )
 )
@@ -382,6 +518,7 @@
     (asserts! (<= new-fee MAX-FEE-BASIS-POINTS) ERR-INVALID-COLLATERAL)
     (var-set borrow-fee-basis-points new-fee)
     (print { event: "borrow-fee-updated", fee-bps: new-fee, timestamp: stacks-block-time })
+    (log-event "borrow-fee-updated" tx-sender CONTRACT-OWNER new-fee)
     (ok true)
   )
 )
@@ -391,6 +528,7 @@
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
     (var-set fee-recipient new-recipient)
     (print { event: "fee-recipient-updated", recipient: new-recipient, timestamp: stacks-block-time })
+    (log-event "fee-recipient-updated" tx-sender new-recipient u0)
     (ok true)
   )
 )
@@ -404,11 +542,44 @@
     (try! (stx-transfer? fees CONTRACT-OWNER tx-sender))
     (var-set collected-fees u0)
     (print { event: "fees-claimed", amount: fees, recipient: tx-sender, timestamp: stacks-block-time })
+    (log-event "fees-claimed" tx-sender CONTRACT-OWNER fees)
     (ok fees)
   )
 )
 
 ;; Private Functions
+
+;; Centralized event logging into event-log map
+(define-private (log-event (etype (string-ascii 30)) (user principal) (asset principal) (amount uint))
+  (let ((next-id (+ u1 (var-get event-counter))))
+    (var-set event-counter next-id)
+    (map-set event-log next-id {
+      event-type: etype,
+      user: user,
+      asset: asset,
+      amount: amount,
+      timestamp: stacks-block-time
+    })
+    true
+  )
+)
+
+;; Accrue rewards for a user and asset based on time and reward rate
+(define-private (accrue-rewards (user principal) (asset principal) (current-amount uint))
+  (let (
+    (reward-state (default-to { accrued: u0, last-updated: stacks-block-time } (map-get? user-rewards {user: user, asset: asset})))
+    (collateral-type (unwrap! (map-get? collateral-types asset) ERR-INVALID-COLLATERAL))
+    (delta (if (> stacks-block-time (get last-updated reward-state)) (- stacks-block-time (get last-updated reward-state)) u0))
+    (rate (get reward-rate-bps collateral-type))
+    (earned (/ (* current-amount rate delta) u10000))
+  )
+    (map-set user-rewards {user: user, asset: asset} {
+      accrued: (+ (get accrued reward-state) earned),
+      last-updated: stacks-block-time
+    })
+    (ok true)
+  )
+)
 
 ;; Liquidation: Anyone can liquidate unhealthy positions
 (define-public (liquidate-collateral (user principal) (asset principal))
@@ -421,6 +592,9 @@
     (liquidation-value (/ (* collateral-value (get liquidation-threshold collateral-type)) u10000))
     (health-factor (if (is-eq borrowed u0) u10000 (/ (* liquidation-value u10000) borrowed)))
   )
+    ;; Accrue rewards on current balance before seizure
+    (try! (accrue-rewards user asset amount))
+
     ;; Only allow liquidation if health factor is below threshold
     (asserts! (< health-factor u10000) ERR-NOT-LIQUIDATABLE)
 
@@ -468,6 +642,8 @@
         seized-value-usd: seize-value,
         timestamp: stacks-block-time
       })
+
+      (log-event "collateral-liquidated" tx-sender asset seize-amount)
 
       (ok seize-amount)
     )
@@ -626,6 +802,30 @@
 
 (define-read-only (get-fee-recipient)
   (var-get fee-recipient)
+)
+
+(define-read-only (get-price-oracle)
+  (var-get price-oracle)
+)
+
+(define-read-only (get-event (id uint))
+  (map-get? event-log id)
+)
+
+(define-read-only (get-user-rewards (user principal) (asset principal))
+  (map-get? user-rewards {user: user, asset: asset})
+)
+
+(define-read-only (get-pending-rewards (user principal) (asset principal))
+  (match (map-get? collateral-types asset)
+    coll-type (let (
+      (reward-state (default-to { accrued: u0, last-updated: stacks-block-time } (map-get? user-rewards {user: user, asset: asset})))
+      (current-collateral (default-to { amount: u0 } (map-get? user-collateral {user: user, asset: asset})))
+      (delta (if (> stacks-block-time (get last-updated reward-state)) (- stacks-block-time (get last-updated reward-state)) u0))
+      (earned (/ (* (get amount current-collateral) (get reward-rate-bps coll-type) delta) u10000))
+    )
+      (ok (+ (get accrued reward-state) earned)))
+    (err ERR-INVALID-COLLATERAL))
 )
 
 (define-read-only (calculate-deposit-fee (amount uint))
