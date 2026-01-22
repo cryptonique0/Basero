@@ -12,12 +12,44 @@ import {RebaseToken} from "./RebaseToken.sol";
 
 /**
  * @title EnhancedCCIPBridge
- * @author Basero Team
- * @notice Multi-chain bridge with batch transfers, composability, and rate limiting
- * @dev Extends Chainlink CCIP for cross-chain rebase token transfers
- * @custom:security Pausable and protected against reentrancy
- * @custom:chains Supports Ethereum, Polygon, Scroll, zkSync, Arbitrum, Base, Optimism, and more
- * @custom:features Dynamic chain registry, Batch transfers (83% gas savings), Cross-chain composability, Rate limiting per source chain
+ * @author Basero Protocol
+ * @notice Production-grade cross-chain bridge using Chainlink CCIP for RebaseTokens
+ * @dev Enterprise bridge with batching, rate limiting, and composability features
+ * 
+ * @dev Architecture:
+ * - Single source of truth for cross-chain token transfers
+ * - Burns tokens on source chain, mints on destination
+ * - Dynamic chain registry (add chains without redeployment)
+ * - Token bucket rate limiting per source chain
+ * - Batch transfers for 83% gas savings (10 recipients)
+ * - Composable routes for cross-chain contract interactions
+ * 
+ * @dev Key Features:
+ * 1. Batch Transfers: Group multiple recipients into single CCIP message
+ * 2. Rate Limiting: Token bucket algorithm prevents spam per source chain
+ * 3. Composability: Execute contract calls on destination chain
+ * 4. Dynamic Chains: Add/remove chains via governance without upgrade
+ * 5. Safety Bounds: Min/max transfer amounts per chain
+ * 6. Fee Management: LINK token for CCIP fees
+ * 
+ * @dev Supported Chains:
+ * - Ethereum Mainnet (chain selector: TBD)
+ * - Polygon (chain selector: TBD)
+ * - Arbitrum, Optimism, Base, Scroll, zkSync
+ * - Any EVM chain with CCIP support
+ * 
+ * @dev Security:
+ * - ReentrancyGuard on all state-changing functions
+ * - Pausable for emergency stops
+ * - Owner-only chain configuration
+ * - Rate limits prevent DoS attacks
+ * - Amount bounds prevent large exploits
+ * - CCIP message validation
+ * 
+ * @dev Gas Optimization:
+ * - Batch 10 transfers: ~83% gas savings vs individual
+ * - Immutable variables for frequently accessed data
+ * - Efficient token bucket updates
  */
 contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard {
     // ============= State Variables =============
@@ -264,12 +296,30 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     // ============= Constructor =============
 
     /**
-     * @notice Deploy the enhanced CCIP bridge
-     * @dev Sets up CCIP receiver, ownership, and token references
-     * @param _router CCIP router address for this chain
-     * @param _linkToken LINK token address for paying CCIP fees
-     * @param _rebaseToken Rebase token address to bridge
-     * @custom:gas ~350k gas for deployment
+     * @notice Deploy the enhanced CCIP bridge for a specific chain
+     * @dev Initializes CCIP receiver, sets immutable token references
+     * 
+     * @param _router Chainlink CCIP router address for this chain
+     * @param _linkToken LINK token address (for paying CCIP fees)
+     * @param _rebaseToken RebaseToken address to bridge across chains
+     * 
+     * Requirements:
+     * - All addresses must be valid contracts
+     * - _router must be the official CCIP router for this chain
+     * - _linkToken must be the canonical LINK token
+     * - _rebaseToken must be the deployed RebaseToken
+     * 
+     * Effects:
+     * - Sets deployer as owner
+     * - Initializes pausable state (unpaused)
+     * - No chains configured initially (must call configureChain)
+     * 
+     * Example:
+     * new EnhancedCCIPBridge(
+     *   0x..., // CCIP router on Ethereum
+     *   0x514910771AF9Ca656af840dff83E8264EcF986CA, // LINK on Ethereum
+     *   0x... // RebaseToken on Ethereum
+     * )
      */
     constructor(address _router, address _linkToken, address _rebaseToken) 
         CCIPReceiver(_router) 
@@ -282,17 +332,40 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     // ============= Chain Management =============
 
     /**
-     * @notice Configure a chain for bridging or update existing configuration
-     * @dev Enables dynamic chain support without redeployment
-     * @param _chainSelector CCIP chain selector (unique ID per chain)
-     * @param _receiver Bridge receiver contract address on destination
-     * @param _minAmount Minimum tokens per transfer (prevents dust attacks)
-     * @param _maxAmount Maximum tokens per transfer (security limit)
-     * @param _batchWindow Time window for batching transfers (in seconds)
-     * @custom:gas ~90k gas (multiple SSTOREs)
-     * @custom:emits ChainConfigured
-     * @custom:security Owner-only to prevent unauthorized chain additions
-     * @custom:example configureChain(polygonSelector, 0x..., 1 ether, 100 ether, 1 hours)
+     * @notice Configure or update a destination chain for bridging
+     * @dev Enables dynamic multi-chain support without contract upgrade
+     * 
+     * @param _chainSelector CCIP chain selector (unique per chain, provided by Chainlink)
+     * @param _receiver EnhancedCCIPBridge contract address on destination chain
+     * @param _minAmount Minimum tokens per transfer (prevents dust/spam)
+     * @param _maxAmount Maximum tokens per transfer (security circuit breaker)
+     * @param _batchWindow Time window for batching transfers (seconds, 0=disabled)
+     * 
+     * Requirements:
+     * - Caller must be owner
+     * - _receiver cannot be zero address
+     * - _minAmount must be <= _maxAmount
+     * 
+     * Effects:
+     * - Enables bridging to this chain
+     * - Sets transfer amount bounds
+     * - Configures batch window
+     * - Overwrites existing config if chain already configured
+     * 
+     * Emits:
+     * - ChainConfigured(chainSelector, receiver, minAmount, maxAmount)
+     * 
+     * Example:
+     * // Configure Polygon bridging
+     * configureChain(
+     *   4051577828743386545, // Polygon CCIP selector
+     *   0x123..., // Bridge receiver on Polygon
+     *   0.1 ether, // Min 0.1 tokens
+     *   1000 ether, // Max 1000 tokens
+     *   1 hours // 1 hour batch window
+     * )
+     * 
+     * Gas: ~90k (multiple storage writes)
      */
     function configureChain(
         uint64 _chainSelector,
@@ -317,8 +390,24 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     }
 
     /**
-     * @dev Disable a chain without removing config
-     * @param _chainSelector CCIP chain selector
+     * @notice Disable bridging to a chain without removing configuration
+     * @dev Soft disable - preserves config for potential re-enabling
+     * 
+     * @param _chainSelector CCIP chain selector to disable
+     * 
+     * Requirements:
+     * - Caller must be owner
+     * 
+     * Effects:
+     * - Sets chain.enabled = false
+     * - Prevents new bridges to this chain
+     * - Preserves min/max amounts and batch window
+     * 
+     * Emits:
+     * - ChainConfigured(chainSelector, address(0), 0, 0)
+     * 
+     * Use Case:
+     * Temporarily disable a chain if CCIP has issues or during upgrades
      */
     function disableChain(uint64 _chainSelector) external onlyOwner {
         chainConfigs[_chainSelector].enabled = false;
@@ -328,10 +417,35 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     // ============= Rate Limiting =============
 
     /**
-     * @dev Configure rate limiting for a source chain
-     * @param _sourceChain Source chain selector
-     * @param _tokensPerSecond Tokens allowed per second
-     * @param _maxBurstSize Maximum burst size
+     * @notice Configure rate limiting for incoming messages from a source chain
+     * @dev Uses token bucket algorithm to prevent spam and DoS attacks
+     * 
+     * @param _sourceChain Source chain selector to rate limit
+     * @param _tokensPerSecond Bucket refill rate (tokens per second)
+     * @param _maxBurstSize Maximum bucket capacity (max tokens in one burst)
+     * 
+     * Requirements:
+     * - Caller must be owner
+     * 
+     * Effects:
+     * - Creates/updates rate limit config for source chain
+     * - Initializes bucket at max capacity
+     * - Sets refill timestamp to current block
+     * 
+     * Emits:
+     * - RateLimitConfigured(sourceChain, tokensPerSecond, maxBurstSize)
+     * 
+     * Token Bucket Algorithm:
+     * - Bucket starts at maxBurstSize
+     * - Each transfer consumes 1e18 tokens from bucket
+     * - Bucket refills at tokensPerSecond rate
+     * - Bucket capped at maxBurstSize
+     * 
+     * Example:
+     * setRateLimit(polygonSelector, 10, 100)
+     * // Allows 10 transfers/second from Polygon
+     * // Max burst of 100 transfers
+     * // After 100 transfers, must wait for refill
      */
     function setRateLimit(
         uint64 _sourceChain,
@@ -352,9 +466,39 @@ contract EnhancedCCIPBridge is CCIPReceiver, Ownable, Pausable, ReentrancyGuard 
     }
 
     /**
-     * @dev Check and consume tokens from rate limit bucket
+     * @notice Internal function to check and consume rate limit tokens
+     * @dev Token bucket algorithm with automatic refill
+     * 
      * @param _sourceChain Source chain selector
-     * @param _amount Amount to consume
+     * @param _amount Tokens to consume (typically 1e18 per transfer)
+     * 
+     * Algorithm:
+     * 1. Calculate time passed since last update
+     * 2. Refill bucket: tokensToAdd = timePassed * tokensPerSecond
+     * 3. Cap at maxBurstSize
+     * 4. Check if sufficient tokens available
+     * 5. Consume tokens and update timestamp
+     * 
+     * Formula:
+     * available = min(current + timePassed * rate, maxBurst)
+     * if available < amount: revert RateLimitExceeded
+     * 
+     * Example:
+     * Config: 10 tokens/sec, 100 max burst
+     * Last update: 5 seconds ago
+     * Current tokens: 50
+     * Refill: 50 + (5 * 10) = 100 tokens
+     * Consume 1e18: 100 - 1 = 99 tokens remaining
+     * 
+     * Effects:
+     * - Updates chainRateLimitTokens[sourceChain]
+     * - Updates chainRateLimitLastUpdate[sourceChain]
+     * 
+     * Emits:
+     * - RateLimitApplied(sourceChain, consumed, remaining)
+     * 
+     * Reverts:
+     * - RateLimitExceeded if insufficient tokens
      */
     function _consumeRateLimit(uint64 _sourceChain, uint256 _amount) internal {
         RateLimitConfig storage config = rateLimits[_sourceChain];
