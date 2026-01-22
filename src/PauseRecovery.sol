@@ -6,17 +6,23 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.
 
 /**
  * @title PauseRecovery
+ * @author Basero Labs
  * @notice Emergency pause and recovery system for Basero Protocol
  * @dev Manages protocol pause state, recovery procedures, and emergency withdrawals
- * 
- * **Features:**
- * - Global and contract-specific pause states
- * - Recovery procedure management
- * - Emergency withdrawal mechanisms
- * - State snapshot and validation
- * - Recovery progress tracking
- * - Multi-stage recovery process
- */
+ *
+ * ARCHITECTURE:
+ * Global emergency control system with hierarchical pause levels and structured recovery process.
+ * Enables gradual recovery with state snapshots and audit trail.
+ *
+ * SIX PAUSE LEVELS (Graduated Response):\n * 1. None (0): No pause - normal operations\n * 2. VaultOnly: Only vault operations paused (deposits/withdrawals blocked)\n * 3. BridgeOnly: Only bridge operations paused (cross-chain disabled)\n * 4. GovernanceOnly: Only governance paused (voting/proposals blocked)\n * 5. PartialPause: Multiple systems paused (vault + bridge)\n * 6. FullPause: Complete protocol pause (all operations blocked)\n *
+n * SEVEN RECOVERY STAGES (Structured Process):\n * 1. Initial: Pause just triggered\n * 2. Assessment: Analyzing root cause and impact\n * 3. Planning: Recovery strategy being developed\n * 4. Execution: Active recovery implementation\n * 5. Verification: Confirming recovery effectiveness\n * 6. Completed: Recovery finished successfully\n *
+ * STATE SNAPSHOTS:\n * Automatically take snapshots before pause/unpause to preserve protocol state.\n * Includes: timestamp, pause level, vault metrics, bridge status, governance status\n * Used for: Audit trail, recovery verification, incident analysis\n *
+ * EMERGENCY WITHDRAWAL SYSTEM:\n * During full pause, users can request emergency withdrawals\n * Requires: Multi-sig approval + designated withdrawal window\n * Limits: configurable percentage cap (default 10%) to prevent bank runs\n *
+ * PAUSE FLOW EXAMPLE:\n * ```\n * 1. Security incident detected on source chain\n * 2. Multi-sig calls pauseProtocol(BridgeOnly, \"Source chain compromise\")\n * 3. State snapshot created (snapshot ID: 1)\n * 4. Recovery initiated automatically (recovery ID: 1)\n * 5. Bridge operations now blocked, vault continues\n * 6. Pause cooldown: 2 hours (cannot unpause immediately)\n * 7. After investigation and patch deployment:\n * 8. Multi-sig calls unpauseProtocol(BridgeOnly)\n * 9. State snapshot created (snapshot ID: 2)\n * 10. Bridge operations restored\n * 11. Recovery marked complete\n * 12. Analysis: Pause lasted 4 hours, 0 failed transactions\n * ```\n *
+ * EMERGENCY WITHDRAWAL FLOW:\n * ```\n * 1. Protocol in full pause\n * 2. User calls requestEmergencyWithdrawal(user, REBASE_TOKEN, 1000e18)\n * 3. Withdrawal request created (request ID: 1)\n * 4. Multi-sig reviews request\n * 5. If approved: approveEmergencyWithdrawal(1)\n * 6. User calls executeEmergencyWithdrawal(1)\n * 7. Tokens transferred to user (subject to cap: 10% of vault)\n * 8. EmergencyWithdrawal event emitted\n * ```\n *
+ * SECURITY CONSIDERATIONS:\n * - Only multi-sig or owner can pause/unpause (centralized control)\n * - Pause cooldown prevents rapid pause/unpause cycles (default: 2 hours)\n * - Recovery timeout prevents indefinite pause (default: 7 days)\n * - State snapshots provide audit trail for incident review\n * - Emergency withdrawals capped to prevent complete drain\n * - Component-specific pauses allow surgical response\n *
+ * CONFIGURATION:\n * - pauseCooldown: Time before unpause allowed (default: 2 hours)\n * - recoveryTimeout: Max time for recovery (default: 7 days)\n * - maxEmergencyWithdrawalPercent: Max withdrawal size (default: 10%)\n * - multiSigAddress: Emergency authority (upgradeable)\n *
+ * DEPLOYMENT CHECKLIST:\n * 1. Deploy with multi-sig address and contract references\n * 2. Set reasonable pause cooldown and recovery timeout\n * 3. Configure emergency withdrawal cap (10% is conservative)\n * 4. Verify multi-sig address is correct\n * 5. Grant PauseRecovery access to pause target contracts\n * 6. Test pause/unpause cycle on testnet\n * 7. Document emergency procedures for team\n * 8. Monitor pause/recovery events in production\n */
 contract PauseRecovery is Ownable, ReentrancyGuard {
     
     // ============ Enums ============
@@ -196,12 +202,20 @@ contract PauseRecovery is Ownable, ReentrancyGuard {
     // ============ Constructor ============
     
     /**
-     * @notice Initialize pause recovery system
-     * @param _multiSigAddress Address of emergency multi-sig contract
-     * @param _vaultAddress Address of vault contract
-     * @param _bridgeAddress Address of bridge contract
-     * @param _governorAddress Address of governor contract
-     */
+     * @notice Initialize pause recovery system with emergency contacts and timeouts
+n     * @dev Sets up multi-sig authority, contract references, and safety parameters
+     * @param _multiSigAddress Address of emergency multi-sig contract (cannot be zero)
+     * @param _vaultAddress Address of vault contract to be paused if needed
+     * @param _bridgeAddress Address of bridge contract to be paused if needed
+     * @param _governorAddress Address of governor contract to be paused if needed
+     *
+     * INITIALIZATION:\n     * - pauseCooldown = 2 hours (safety window before unpause)
+     * - recoveryTimeout = 7 days (max pause duration)
+     * - maxEmergencyWithdrawalPercent = 10% (prevents bank runs)
+     * - pauseState = None (no pause active)
+     * - autoRecoveryEnabled = false (manual control recommended)
+     *
+     * POST-DEPLOYMENT:\n     * 1. Grant PauseRecovery PAUSE role to contract references\n     * 2. Set up monitoring for ProtocolPaused events\n     * 3. Train team on emergency procedures\n     * 4. Test pause/unpause cycle on testnet\n     */
     constructor(
         address _multiSigAddress,
         address _vaultAddress,
