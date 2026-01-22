@@ -339,15 +339,26 @@ contract BASEGovernanceHelpers {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Encode a CCIP per-chain cap proposal
-     * @dev Governance can update bridging limits per destination chain
-     * @param chainSelector CCIP chain selector
-     * @param sendCap Maximum amount per send transaction
-     * @param dailyLimit Maximum amount per day
-     * @return targets Array with sender address
-     * @return values Array with 0 ETH
-     * @return calldatas Array with encoded setChainCaps call
-     * @return description Proposal description
+     * @notice Encode a CCIP per-chain cap proposal for governance
+     * @dev Creates proposal data to update bridging limits for specific destination chains
+     * @dev Provides per-transaction and per-day rate limiting for risk management
+     *
+     * @param chainSelector CCIP chain selector ID for the destination chain
+     * @param sendCap Maximum amount per single bridge transaction (token units)
+     * @param dailyLimit Maximum amount that can be bridged to that chain per day
+     *
+     * @return targets Array containing [sender address]
+     * @return values Array containing [0] (no ETH sent)
+     * @return calldatas Array containing encoded setChainCaps() call
+     * @return description Human-readable proposal description
+     *
+     * RATE LIMITING FORMULAS (in CCIPRebaseTokenSender.bridgeTokens()):
+     * Single transaction: require(bridgeAmount ≤ sendCap, \"exceeds per-tx limit\")
+     * Daily aggregate: require(dailyBridged[chain] + amount ≤ dailyLimit, \"exceeds daily limit\")
+     *
+     * Example with tiered chains:
+     * Arbitrum (mature): sendCap = 1000, dailyLimit = 100000
+     * Base (conservative): sendCap = 100, dailyLimit = 10000
      */
     function encodeCCIPCapProposal(uint64 chainSelector, uint256 sendCap, uint256 dailyLimit)
         external
