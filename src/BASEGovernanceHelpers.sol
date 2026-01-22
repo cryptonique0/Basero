@@ -7,16 +7,42 @@ import {CCIPRebaseTokenReceiver} from "./CCIPRebaseTokenReceiver.sol";
 
 /**
  * @title BASEGovernanceHelpers
- * @dev Helper contract for constructing governance proposals
- * @notice Provides utilities to encode common parameter change proposals
+ * @author Basero Labs
+ * @notice Provides utilities for encoding governance proposals for parameter changes
+ * @dev Helper contract for constructing governable parameter updates
  *
- * SUPPORTED PROPOSALS:
- * - Vault fee updates
- * - Vault cap updates
- * - Vault accrual configuration
- * - CCIP per-chain fee updates
- * - CCIP cap updates
- * - Treasury ETH distributions
+ * ARCHITECTURE:
+ * This contract provides proposal encoders for governance to update critical
+ * parameters across Vault and CCIP Bridge contracts. Used by off-chain tools
+ * or governance interfaces to generate proposal data.
+ *
+ * PROPOSAL TYPES (7 total):
+ * 1. Vault Fee Updates - Update protocol fee % and recipient
+ * 2. Vault Deposit Caps - Update min/per-user/global caps
+ * 3. Vault Accrual Config - Update interest accrual period and daily max
+ * 4. CCIP Per-Chain Fees - Update bridge fees per destination chain
+ * 5. CCIP Per-Chain Caps - Update send cap and daily limits per chain
+ * 6. Treasury Distribution - Distribute accumulated protocol funds
+ * 7. Utility Functions - Convert uint256/address to strings for descriptions
+ *
+ * WORKFLOW:
+ * 1. Off-chain: Call encode*Proposal() function with new parameters
+ * 2. Returns: targets[], values[], calldatas[], and description string
+ * 3. Governance: Submit proposal with returned data to BASEGovernor
+ * 4. Voters: Vote on proposal for 7 days
+ * 5. Execute: If passed, proposal auto-executes via timelock (2-day delay)
+ *
+ * SECURITY CONSIDERATIONS:
+ * - Parameter validation: feeBps ≤ 10000 bps (100%), accrualBps ≤ 1000 bps (10%)
+ * - All proposals are governance-controlled (no admin backdoors)
+ * - Timelock provides 2-day security delay before execution
+ * - Proper array length checks prevent mismatched parameters
+ *
+ * KEY FORMULAS:
+ * - Fee basis points: feeBps / 10000 = fee percentage
+ *   Example: 500 bps = 5% fee
+ * - Daily accrual limit: maxDailyBps / 10000 = max daily percentage
+ *   Example: 500 bps = 5% max per day
  */
 contract BASEGovernanceHelpers {
     /*//////////////////////////////////////////////////////////////
@@ -40,6 +66,33 @@ contract BASEGovernanceHelpers {
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
+    /**
+     * @notice Initialize governance helpers with contract addresses
+     * @dev Sets up references to vault and CCIP bridge contracts for proposal encoding
+     * 
+     * @param _vault Address of RebaseTokenVault for vault parameter updates
+     * @param _sender Address of CCIPRebaseTokenSender for CCIP source chain config
+     * @param _receiver Address of CCIPRebaseTokenReceiver for destination chain monitoring
+     *
+     * REQUIREMENTS:
+     * - _vault must not be zero address (prevents incorrect proposals)
+     * - _sender must not be zero address (prevents bridging to 0x0)
+     * - _receiver must not be zero address (prevents orphaned receiver)
+     *
+     * EFFECTS:
+     * - Sets vault reference for encodeVaultFeeProposal, encodeVaultCapProposal, etc.
+     * - Sets sender reference for CCIP fee and cap encoding
+     * - Sets receiver reference for potential future receiver-controlled proposals
+     *
+     * Example:
+     * ```
+     * helpers = new BASEGovernanceHelpers(
+     *     0x123... (vault),
+     *     0x456... (sender),
+     *     0x789... (receiver)
+     * )
+     * ```
+     */
     constructor(address _vault, address _sender, address _receiver) {
         if (_vault == address(0)) revert InvalidVaultAddress();
         if (_sender == address(0)) revert InvalidSenderAddress();
@@ -55,14 +108,46 @@ contract BASEGovernanceHelpers {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Encode a vault fee configuration proposal
-     * @dev Governance can update protocol fees via this proposal
-     * @param feeRecipient New fee recipient address
-     * @param feeBps New fee basis points (0-10000)
-     * @return targets Array with vault address
-     * @return values Array with 0 ETH
-     * @return calldatas Array with encoded setFeeConfig call
-     * @return description Proposal description
+     * @notice Encode a vault fee configuration proposal for governance
+     * @dev Creates proposal data to update vault protocol fees and recipient
+     * @dev Governance workflow: encode → submit to Governor → vote → execute via timelock
+     *
+     * @param feeRecipient New address to receive collected protocol fees
+     * @param feeBps New fee basis points (0-10000, where 10000 = 100%)
+     *
+     * @return targets Array containing [vault address]
+     * @return values Array containing [0] (no ETH sent)
+     * @return calldatas Array containing encoded setFeeConfig() call
+     * @return description Human-readable proposal description
+     *
+     * REQUIREMENTS:
+     * - feeBps ≤ 10000 bps (reverts if > 100%)
+     * - feeRecipient must be valid (no validation here, done at execution)
+     * - proposal must be passed by governance vote
+     * - proposal must pass timelock 2-day delay before execution
+     *
+     * EFFECTS (when executed via timelock):
+     * - Vault feeRecipient updated to new address
+     * - Vault feeBps updated to new percentage
+     * - All future deposits collect fees at new rate
+     * - Existing balances unaffected
+     *
+     * FEE BASIS POINTS FORMULA:
+     * actualFee = depositAmount × (feeBps / 10000)
+     * Examples:
+     * - 500 bps = 5% fee
+     * - 100 bps = 1% fee
+     * - 0 bps = 0% fee (no collection)
+     * - 10000 bps = 100% fee (vault keeps all, users get nothing)
+     *
+     * Example Usage:
+     * ```
+     * (targets, values, calldatas, description) = helpers.encodeVaultFeeProposal(
+     *     0xTreasury,  // new fee recipient
+     *     500          // 5% fee
+     * )
+     * // Submit to governor: governor.propose(targets, values, calldatas, description)
+     * ```
      */
     function encodeVaultFeeProposal(address feeRecipient, uint16 feeBps)
         external
@@ -92,15 +177,30 @@ contract BASEGovernanceHelpers {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Encode a vault deposit cap proposal
-     * @dev Governance can update deposit limits via this proposal
-     * @param minDeposit New minimum deposit amount
-     * @param maxDepositPerAddress New per-user cap
-     * @param maxTotalDeposits New global TVL cap
-     * @return targets Array with vault address
-     * @return values Array with 0 ETH
-     * @return calldatas Array with encoded setDepositCaps call
-     * @return description Proposal description
+     * @notice Encode a vault deposit cap proposal for governance
+     * @dev Creates proposal data to update vault deposit limits (min/per-user/global)
+     * @dev Controls protocol growth rate and per-user concentration risk
+     *
+     * @param minDeposit Minimum deposit amount in wei (prevents dust)
+     * @param maxDepositPerAddress Per-address cap in wei (limits concentration)
+     * @param maxTotalDeposits Global TVL cap in wei (limits protocol size)
+     *
+     * @return targets Array containing [vault address]
+     * @return values Array containing [0] (no ETH sent)
+     * @return calldatas Array containing encoded setDepositCaps() call
+     * @return description Human-readable proposal description
+     *
+     * EFFECTS (when executed):
+     * - Vault minDeposit, maxDepositPerAddress, maxTotalDeposits updated
+     * - Existing deposits unaffected, new deposits checked against new caps
+     * - Deposits above cap revert with error
+     *
+     * Example with production values:
+     * ```
+     * minDeposit = 0.1 ether          // 0.1 ETH minimum
+     * maxPerAddress = 100 ether       // 100 ETH per user max
+     * maxTotal = 10000 ether          // 10,000 ETH global cap
+     * ```
      */
     function encodeVaultCapProposal(uint256 minDeposit, uint256 maxDepositPerAddress, uint256 maxTotalDeposits)
         external
@@ -133,14 +233,35 @@ contract BASEGovernanceHelpers {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Encode a vault accrual configuration proposal
-     * @dev Governance can update interest accrual parameters
-     * @param accrualPeriod New accrual period in seconds (1 hour to 7 days)
-     * @param maxDailyAccrualBps Max daily accrual in basis points
-     * @return targets Array with vault address
-     * @return values Array with 0 ETH
-     * @return calldatas Array with encoded setAccrualConfig call
-     * @return description Proposal description
+     * @notice Encode a vault accrual configuration proposal for governance
+     * @dev Creates proposal data to update interest accrual frequency and daily limits
+     * @dev Controls how fast interest compounds and prevents runaway accrual via circuit breaker
+     *
+     * @param accrualPeriod Accrual period in seconds (1 hour to 7 days)
+     *        - Lower = more frequent (more compounding, higher gas)
+     *        - Higher = less frequent (better efficiency, less precision)
+     * @param maxDailyAccrualBps Max daily accrual in bps (0-1000, i.e., 0-10%)
+     *        - Circuit breaker to prevent unexpected growth
+     *
+     * @return targets Array containing [vault address]
+     * @return values Array containing [0] (no ETH sent)
+     * @return calldatas Array containing encoded setAccrualConfig() call
+     * @return description Human-readable proposal description
+     *
+     * EFFECTS (when executed via timelock):
+     * - Vault accrualPeriod updated (affects performUpkeep automation interval)
+     * - Vault maxDailyAccrualBps updated (affects circuit breaker in _accrueInterest)
+     * - Next interest accrual uses new parameters
+     * - Existing accrued interest unaffected
+     *
+     * CIRCUIT BREAKER FORMULA:
+     * maxAllowed = (totalETH × maxDailyAccrualBps) / 10000
+     * actualAccrual = min(calculatedInterest, maxAllowed)
+     *
+     * Example: 1000 ETH vault at 4% APY with 5% daily circuit breaker
+     * dailyInterest = (1000 × 4%) / 365 ≈ 0.11 ETH
+     * maxAllowed = (1000 × 5%) / 100 = 5 ETH
+     * actualAccrual = min(0.11, 5) = 0.11 ETH (within limit, all accrued)
      */
     function encodeVaultAccrualProposal(uint256 accrualPeriod, uint16 maxDailyAccrualBps)
         external
@@ -170,14 +291,25 @@ contract BASEGovernanceHelpers {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Encode a CCIP per-chain fee proposal
-     * @dev Governance can update bridge fees per destination chain
-     * @param chainSelector CCIP chain selector
-     * @param feeBps Fee in basis points for that chain
-     * @return targets Array with sender address
-     * @return values Array with 0 ETH
-     * @return calldatas Array with encoded setChainFeeBps call
-     * @return description Proposal description
+     * @notice Encode a CCIP per-chain fee proposal for governance
+     * @dev Creates proposal data to update bridge fees for specific destination chains
+     * @dev Each destination has different CCIP infrastructure costs, justified by different fees
+     *
+     * @param chainSelector CCIP chain selector ID (e.g., 5009297550715157269 for Arbitrum)
+     * @param feeBps Bridge fee in basis points for that chain (0-10000, i.e., 0-100%)
+     *
+     * @return targets Array containing [sender address]
+     * @return values Array containing [0] (no ETH sent)
+     * @return calldatas Array containing encoded setChainFeeBps() call
+     * @return description Human-readable proposal description
+     *
+     * FEE CALCULATION FORMULA (in CCIPRebaseTokenSender.bridgeTokens()):
+     * feeAmount = (bridgeAmount × chainFeeBps[chainSelector]) / 10000
+     * actualBridgeAmount = bridgeAmount - feeAmount
+     *
+     * Example: 100 token bridge to Arbitrum with 500 bps fee
+     * feeAmount = (100 × 500) / 10000 = 5 tokens
+     * User receives: 95 tokens, protocol keeps: 5 tokens
      */
     function encodeCCIPFeeProposal(uint64 chainSelector, uint16 feeBps)
         external
